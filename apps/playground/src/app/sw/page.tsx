@@ -18,6 +18,10 @@ import { useCapabilities } from "@palomapf-dev/pf-field-core/react";
  *
  * どちらも「動いている」状態であり、iOS が壊れているわけではない。
  * UI がその差を正しく出し分けられることが要件（capabilities.backgroundSync）。
+ *
+ * なお「API がある」ことと「登録できる」ことは別。
+ * ヘッドレスの Chromium は API を持ちながら register を拒否する。
+ * 実機でも登録上限や設定で拒否されうるので、理由も画面に出しておく。
  */
 export default function SwPage() {
   const { capabilities } = useCapabilities();
@@ -68,6 +72,12 @@ export default function SwPage() {
             <span data-testid="requires-foreground">
               {sync.requiresForeground ? "はい" : "いいえ"}
             </span>
+            {sync.reason && (
+              <>
+                {" / 理由: "}
+                <span data-testid="sync-reason">{sync.reason}</span>
+              </>
+            )}
           </>
         )}
       </div>
