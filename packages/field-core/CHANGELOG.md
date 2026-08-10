@@ -1,5 +1,115 @@
 # @palomapf-dev/pf-field-core
 
+## 0.5.0
+
+### Minor Changes
+
+- a7c7737: M4: React バインディングと下書きの永続化。
+
+  ```tsx
+  // app/providers.tsx
+  "use client";
+  import { FieldCoreProvider } from "@palomapf-dev/pf-field-core/react";
+
+  export function Providers({ children }) {
+    return <FieldCoreProvider config={{ appId: "pf-setsubi", endpoints: { submit: {...} } }}>
+      {children}
+    </FieldCoreProvider>;
+  }
+  ```
+
+  ```tsx
+  const { counts, jobs, flush, retryAll, isSyncing } = useOfflineQueue();
+  const { reachable } = useNetworkStatus();
+
+  <button onClick={flush} disabled={isSyncing || !reachable}>
+    未送信 {counts.unsent} 件を送信
+  </button>;
+  ```
+
+  **新しい公開 API**
+
+  - `configureFieldCore()` — 設定ひとつから一式（キュー・送信ランナー・URL 解決・下書き）を組む
+  - `FieldCoreProvider` / `useFieldCore` / `useFieldCoreContext`
+  - `useOfflineQueue()` / `useQueueJob()`
+  - `useNetworkStatus()` / `useSignedUrl()` / `useSignedUrls()` / `useDraft()`
+  - `createDraftStore()` / `createFileUrlResolver()`
+
+  **下書きの永続化（`useDraft`）**
+
+  Zebra 端末は WebView をバックグラウンドで kill する。点検の途中で端末を
+  胸ポケットに入れた瞬間に入力が消えるなら、「圏外で入力を継続する」は成立しない。
+  デバウンスして保存し、**画面を離れるときは待たずに書く**
+  （`visibilitychange` / `pagehide`）。デバウンス待ちの時間がそのまま消えた入力になるため。
+
+  **`useNetworkStatus` は `navigator.onLine` を信じない**
+
+  `onLine` は「インタフェースが繋がっているか」しか見ておらず、
+  弱電界・死んだゲートウェイ・認証切れのリダイレクトをすべて `true` と報告する。
+  `false` は信用してよいが、**真だけが疑わしい**ので実際に叩いて確かめる。
+
+  **`useSignedUrl` は往復を減らす**
+
+  非公開バケットなので表示のたびに署名の発行が要る。
+  素朴に書くと一覧に 20 枚あれば 20 往復するため、同じティックの要求をまとめ、
+  期限内は使い回す。期限の 30 秒手前で捨てるので「表示した瞬間に切れていた」も避ける。
+
+  **IndexedDB スキーマ v2**
+
+  `drafts` ストアを追加。移行では既存のストアに触らない
+  （未送信ジョブは端末にしか無いデータのため）。
+
+- a7c7737: M5: Service Worker と Background Sync（iOS フォールバック込み）。
+
+  ```ts
+  // worker/sw.ts
+  import { createFieldServiceWorker } from "@palomapf-dev/pf-field-core/sw";
+
+  createFieldServiceWorker({
+    appId: "pf-setsubi",
+    version: __PF_FIELD_BUILD_ID__,
+    precache: __PF_FIELD_PRECACHE__,
+    api: { exclude: [/^\/api\/(uploads|token)/] },
+    // SW にセッションは無い。投入時に預けたトークンで送る
+    createQueue: () => createOfflineQueue({ appId: "pf-setsubi", requireJobToken: true, ... }),
+  });
+  ```
+
+  ```jsonc
+  // package.json
+  "prebuild": "pf-field-sw build"
+  ```
+
+  **新しい公開 API**
+
+  - `createFieldServiceWorker()` — SW 本体（`/sw` サブパス）
+  - `registerFieldServiceWorker()` / `requestQueueSync()` / `askServiceWorkerToFlush()`
+  - `useServiceWorkerUpdate()` — 登録と更新の通知（`/react`）
+  - `pf-field-sw build` — `worker/sw.ts` → `public/sw.js`（precache 一覧を差し込む）
+  - `OfflineQueueOptions.requireJobToken`
+
+  **Background Sync が無い場合（iOS）**
+
+  `requestQueueSync()` は「登録できたか」ではなく
+  **「前面での送信が要るか」**（`requiresForeground`）を返す。
+  iOS では常に true になり、送信は画面が開いている間のトリガに任せる。
+  劣化ではなく、iOS で取りうる唯一の経路。
+
+  **判断したこと**
+
+  - 認証済み HTML は Cache First にしない（middleware が `private, no-store` を付けている）
+  - 署名の発行・認証・アップロードは一切キャッシュしない
+  - 署名付きメディアはクエリを外した鍵で持つ（トークンがクエリに載るため）
+  - 更新を勝手に適用しない。入力途中でリロードされると書きかけが消える
+  - `sync` の失敗は握りつぶさない。reject させてブラウザに再試行させる
+
+  **不具合修正**
+
+  `Authorization: Bearer <jobToken>` の付与が `issueJobToken` の有無に依存していた。
+  Service Worker では発行できない（セッションが無い）ため、
+  **Background Sync 経由の送信だけトークンが落ちて 401 になる**状態だった。
+  付与は「トークンがあれば必ず」に変更し、必須かどうかは `requireJobToken` で表す。
+
 ## 0.4.0
 
 ### Minor Changes
