@@ -153,12 +153,18 @@ describe("転送", () => {
     expect(result.alreadyExisted).toBe(true);
   });
 
-  it("403 は待っても直らない側に分類する", async () => {
+  it("★ アップロードの 403 は署名の失効として再試行する", async () => {
+    /*
+     * 署名付きURLは短命で、弱電界では送信中に切れることがある。
+     * ここを「待っても直らない」にすると、次回は再署名すれば通るものを
+     * 恒久エラーとして捨ててしまう。
+     * 利用権の問題（api 経路の 403）とは意味が違う。
+     */
     stubXhr({ status: 403, responseText: "expired" });
 
     await expect(
       uploadToTarget(target(), blob, "a.jpg", { headers: {} }),
-    ).rejects.toMatchObject({ queueError: { kind: "auth", retryable: false } });
+    ).rejects.toMatchObject({ queueError: { kind: "expired", retryable: true } });
   });
 
   it("500 は待てば直る側に分類する", async () => {

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyErrorCode,
   classifyHttpStatus,
   classifyThrown,
   isPermanent,
   queueErrorFromResponse,
   queueErrorFromThrown,
+  requiresAdmin,
+  requiresReauth,
 } from "../src/queue/errors.js";
 import { FieldCoreError } from "../src/shared/errors.js";
 
@@ -22,9 +25,49 @@ describe("classifyHttpStatus", () => {
     expect(classifyHttpStatus(429).retryable).toBe(true);
   });
 
-  it("401 / 403 は auth かつ再試行しない（再ログインが要る）", () => {
+  it("401 は auth（再ログインで復帰できる）", () => {
     expect(classifyHttpStatus(401)).toEqual({ kind: "auth", retryable: false });
-    expect(classifyHttpStatus(403)).toEqual({ kind: "auth", retryable: false });
+  });
+
+  it("★ 403 は entitlement。auth と混ぜない", () => {
+    /*
+     * pf-portal は 401 auth_expired（再ログインで復帰）と
+     * 403 not_entitled（利用権・課金。復帰不可）を分けている。
+     * ここを同じ kind にすると、UI が再ログイン導線を出し、
+     * 現場が何度ログインしても直らない操作を繰り返すことになる。
+     */
+    expect(classifyHttpStatus(403)).toEqual({ kind: "entitlement", retryable: false });
+  });
+
+  it("アップロード経路の 403 は署名の失効として扱う（再署名で通る）", () => {
+    expect(classifyHttpStatus(403, "upload")).toEqual({ kind: "expired", retryable: true });
+  });
+
+  it("本文のエラーコードはステータスより優先する", () => {
+    expect(classifyErrorCode("auth_expired")).toEqual({ kind: "auth", retryable: false });
+    expect(classifyErrorCode("not_entitled")).toEqual({ kind: "entitlement", retryable: false });
+    expect(classifyErrorCode("知らないコード")).toBeNull();
+
+    // 401 でも not_entitled と明示されていれば entitlement
+    expect(queueErrorFromResponse(401, undefined, '{"error":"not_entitled"}')).toMatchObject({
+      kind: "entitlement",
+    });
+  });
+
+  it("UI の導線を決める判定", () => {
+    const authError = queueErrorFromResponse(401);
+    const entitlementError = queueErrorFromResponse(403);
+
+    // 再ログイン導線を出してよいのは auth だけ
+    expect(requiresReauth(authError)).toBe(true);
+    expect(requiresReauth(entitlementError)).toBe(false);
+
+    expect(requiresAdmin(entitlementError)).toBe(true);
+    expect(requiresAdmin(authError)).toBe(false);
+
+    // どちらも自動再試行はしない（blocked に落ちる）
+    expect(isPermanent(authError)).toBe(true);
+    expect(isPermanent(entitlementError)).toBe(true);
   });
 
   it("入力不備の 4xx は validation かつ再試行しない", () => {

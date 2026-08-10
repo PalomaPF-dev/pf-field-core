@@ -1,4 +1,5 @@
 import { now } from "../shared/clock.js";
+import { judgeExpiry } from "../shared/clock-skew.js";
 import type { FieldDB } from "./open.js";
 import type { StoredJobToken } from "./schema.js";
 
@@ -17,16 +18,35 @@ export async function putJobToken(db: FieldDB, token: StoredJobToken): Promise<v
   await db.put("tokens", token);
 }
 
-/** 有効なトークンだけを返す。期限切れは無いものとして扱う。 */
+/**
+ * トークンを返す。**期限切れでも、判断に自信が無ければ返す。**
+ *
+ * `expiresAt` はサーバ時刻で発行されるのに、端末はそれを端末時計と比べている。
+ * 端末が数時間進んでいると、有効なトークンを「期限切れ」と誤判定し、
+ * 一度も送信を試みないまま blocked(auth) に落ちる。
+ * 認証の正否を決めるのはサーバなので、端末時計だけを根拠に止めない。
+ *
+ * @returns `token` … 送信に使うもの（期限切れの疑いがあっても、試す価値があれば返す）
+ *          `expired` … 端末の判断として期限切れか
+ *          `confident` … その判断を信じてよいか（時計のずれを測れているか）
+ */
 export async function getJobToken(
   db: FieldDB,
   jobId: string,
-  at = now(),
-): Promise<StoredJobToken | undefined> {
+): Promise<
+  { token: StoredJobToken; expired: boolean; confident: boolean } | undefined
+> {
   const token = await db.get("tokens", jobId);
   if (!token) return undefined;
-  if (token.expiresAt <= at) return undefined;
-  return token;
+
+  const verdict = judgeExpiry(token.expiresAt);
+  if (!verdict.expired) return { token, expired: false, confident: true };
+
+  // 期限切れが確かなときだけ、無いものとして扱う
+  if (verdict.confident) return { token, expired: true, confident: true };
+
+  // 時計が当てにならない。送って、サーバに決めてもらう
+  return { token, expired: true, confident: false };
 }
 
 export async function deleteJobToken(db: FieldDB, jobId: string): Promise<void> {

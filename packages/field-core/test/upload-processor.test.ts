@@ -10,6 +10,7 @@ import type { StoredObjectRef } from "../src/storage/types.js";
 import { openFieldDB, type FieldDB } from "../src/db/open.js";
 import { getJobToken, putJobToken } from "../src/db/tokens.repo.js";
 import { noopLogger } from "../src/shared/logger.js";
+import { recordServerDate, resetClockSkew } from "../src/shared/clock-skew.js";
 
 /**
  * 送信ランナー（M3）の検証。
@@ -62,6 +63,7 @@ let queues: OfflineQueue[] = [];
 let storage: MemoryStorage;
 
 beforeEach(async () => {
+  resetClockSkew();
   dbCounter++;
   db = await openFieldDB(`pf-field-runner-${dbCounter}`);
   queues = [];
@@ -262,13 +264,18 @@ describe("認証", () => {
       attachments: [{ blob: photo(), fileName: "a.jpg" }],
     });
 
-    // 26時間が過ぎた状態にする
+    // 26時間が過ぎた状態にする。
+    // Date ヘッダは秒精度なので、境界ぎりぎりだと補正の丸めに埋もれる
     await putJobToken(db, {
       jobId: job.jobId,
       token: "tok-abc",
-      expiresAt: Date.now() - 1,
+      expiresAt: Date.now() - 60_000,
       createdAt: 0,
     });
+
+    // 時計のずれを測れている状態にする（ずれ ≒ 0）。
+    // これが無いと「端末時計しか根拠が無い」扱いになり、止めない
+    recordServerDate(new Date().toUTCString());
 
     await queue.flush({ force: true });
 
@@ -278,6 +285,41 @@ describe("認証", () => {
     // 署名も送信も試していない。投げても 401 になるだけ
     expect(storage.signCalls).toHaveLength(0);
     expect(submit.calls).toHaveLength(0);
+  });
+
+  it("★ 時計のずれを測れていなければ、期限切れに見えても送る", async () => {
+    /*
+     * ハンディ端末の時計は数時間ずれる。expiresAt はサーバ時刻で発行されるので、
+     * 端末時計だけを根拠に「期限切れ」と決めて止めると、
+     * 有効なトークンを持ったまま一度も送信を試みずに blocked(auth) へ落ちる。
+     * 認証の正否を決めるのはサーバ。
+     */
+    resetClockSkew();
+
+    const submit = createSubmit();
+    const queue = await makeQueue(
+      { submit },
+      { issueJobToken: async () => ({ token: "tok-abc" }) },
+    );
+
+    const job = await queue.enqueue({
+      type: "t",
+      payload: {},
+      attachments: [{ blob: photo(), fileName: "a.jpg" }],
+    });
+
+    await putJobToken(db, {
+      jobId: job.jobId,
+      token: "tok-abc",
+      expiresAt: Date.now() - 60_000,
+      createdAt: 0,
+    });
+
+    await queue.flush({ force: true });
+
+    // 送ってみて、サーバが受け付けたので成功
+    expect(submit.calls).toHaveLength(1);
+    expect((await queue.get(job.jobId))?.status).toBe("succeeded");
   });
 
   it("401 でもジョブと写真は消さない", async () => {
@@ -311,6 +353,67 @@ describe("認証", () => {
 
     const counts = await queue.counts();
     expect(counts.unsent).toBe(1);
+  });
+
+  it("★ 403 not_entitled は再ログイン導線に乗せない", async () => {
+    /*
+     * 再ログインしても利用権は増えない。retryAll（再ログイン後の救済）で
+     * 戻してしまうと、同じ理由で blocked に返るだけで未送信が減らず、
+     * 現場は「ログインし直しても直らない」操作を繰り返すことになる。
+     */
+    const submit: SubmitAdapter = {
+      name: "403",
+      async send() {
+        throw uploadFailure({
+          kind: "entitlement",
+          retryable: false,
+          message: "利用権がありません",
+          at: 0,
+          httpStatus: 403,
+        });
+      },
+    };
+    const queue = await makeQueue({ submit });
+
+    const job = await queue.enqueue({
+      type: "t",
+      payload: {},
+      attachments: [{ blob: photo(), fileName: "a.jpg" }],
+    });
+    await queue.flush({ force: true });
+
+    expect((await queue.get(job.jobId))?.status).toBe("blocked");
+    expect((await queue.get(job.jobId))?.lastError?.kind).toBe("entitlement");
+
+    // 再ログイン後の救済では戻らない
+    await queue.retryAll({ includeBlocked: true });
+    expect((await queue.get(job.jobId))?.status).toBe("blocked");
+
+    // 利用権が付与されたあとは、明示すれば戻せる（データは残っている）
+    await queue.retryAll({ includeBlocked: true, includeEntitlement: true });
+    expect((await queue.get(job.jobId))?.status).toBe("pending");
+  });
+
+  it("認証切れ（401）は従来どおり再ログインで戻せる", async () => {
+    const submit: SubmitAdapter = {
+      name: "401",
+      async send() {
+        throw uploadFailure({
+          kind: "auth",
+          retryable: false,
+          message: "認証切れ",
+          at: 0,
+          httpStatus: 401,
+        });
+      },
+    };
+    const queue = await makeQueue({ submit });
+    const job = await queue.enqueue({ type: "t", payload: {} });
+    await queue.flush({ force: true });
+
+    expect((await queue.get(job.jobId))?.status).toBe("blocked");
+    await queue.retryAll({ includeBlocked: true });
+    expect((await queue.get(job.jobId))?.status).toBe("pending");
   });
 
   it("onUnauthorized が true を返したら1回だけやり直す", async () => {

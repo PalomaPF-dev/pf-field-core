@@ -1,4 +1,11 @@
-import { classifyHttpStatus, toQueueError, type Classification } from "../queue/errors.js";
+import {
+  classifyErrorCode,
+  classifyHttpStatus,
+  extractErrorCode,
+  toQueueError,
+  type Classification,
+  type ResponseContext,
+} from "../queue/errors.js";
 import type { QueueError } from "../queue/types.js";
 
 /**
@@ -31,9 +38,12 @@ export interface ClassifiableResponse {
  * **`res.ok` だけで判断しないこと。** 判定の順序に意味がある:
  *   1. リダイレクト（= ログイン画面）→ 認証切れ。ジョブは消さず blocked(auth) に残す
  *   2. 2xx → 成功
- *   3. それ以外 → ステータスごとの分類（401/403 は blocked、5xx は再試行 …）
+ *   3. それ以外 → ステータスごとの分類（401 は再ログイン、403 は経路しだい、5xx は再試行 …）
  */
-export function classifyResponse(response: ClassifiableResponse): Classification | null {
+export function classifyResponse(
+  response: ClassifiableResponse,
+  context: ResponseContext = "api",
+): Classification | null {
   // redirect: "manual" の下では、リダイレクトはこの形で返る
   if (response.type === "opaqueredirect") {
     return { kind: "auth", retryable: false };
@@ -51,7 +61,7 @@ export function classifyResponse(response: ClassifiableResponse): Classification
   // status 0 で opaqueredirect でもない場合は通信自体の失敗とみなす
   if (response.status === 0) return { kind: "network", retryable: true };
 
-  return classifyHttpStatus(response.status);
+  return classifyHttpStatus(response.status, context);
 }
 
 /**
@@ -60,10 +70,22 @@ export function classifyResponse(response: ClassifiableResponse): Classification
  */
 export function responseError(
   response: ClassifiableResponse,
-  detail?: { statusText?: string; body?: string },
+  detail?: { statusText?: string; body?: string; context?: ResponseContext },
 ): QueueError | null {
-  const classification = classifyResponse(response);
+  const context = detail?.context ?? "api";
+
+  // 本文に明示のコードがあればそれを正とする（ステータスより具体的なため）
+  const byCode = classifyErrorCode(extractErrorCode(detail?.body));
+  const classification = byCode ?? classifyResponse(response, context);
   if (classification === null) return null;
+
+  if (classification.kind === "entitlement") {
+    return toQueueError(
+      classification,
+      "この操作の利用権がありません。管理者に連絡してください（再ログインでは解決しません）",
+      response.status || undefined,
+    );
+  }
 
   if (classification.kind === "auth") {
     const reason =

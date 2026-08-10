@@ -48,9 +48,20 @@ describe("classifyResponse", () => {
     }
   });
 
-  it("401 / 403 は認証切れ", () => {
+  it("401 は認証切れ（再ログインで復帰できる）", () => {
     expect(classifyResponse({ status: 401 })).toEqual({ kind: "auth", retryable: false });
-    expect(classifyResponse({ status: 403 })).toEqual({ kind: "auth", retryable: false });
+  });
+
+  it("★ 403 は利用権の問題。再ログインでは直らない", () => {
+    expect(classifyResponse({ status: 403 })).toEqual({
+      kind: "entitlement",
+      retryable: false,
+    });
+
+    // 文言も「再ログインでは解決しない」と明示する
+    const error = responseError({ status: 403 });
+    expect(error?.message).toContain("管理者");
+    expect(error?.message).toContain("再ログイン");
   });
 
   it("5xx は待てば直る", () => {

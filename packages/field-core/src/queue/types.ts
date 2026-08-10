@@ -106,7 +106,19 @@ export type QueueErrorKind =
   | "network"
   | "timeout"
   | "server"
+  /**
+   * 認証切れ。**再ログインで復帰できる**（pf-portal の 401 auth_expired）。
+   * UI は再ログイン導線を出す。
+   */
   | "auth"
+  /**
+   * 利用権が無い。**再ログインしても復帰しない**
+   * （pf-portal の 403 not_entitled。利用権・課金ゲート）。
+   *
+   * `auth` と分けているのは、ここを混ぜると現場が
+   * **無限に再ログインを繰り返す**ため。UI は管理者への連絡を促す。
+   */
+  | "entitlement"
   | "validation"
   | "quota"
   | "expired"
@@ -181,8 +193,14 @@ export interface OfflineQueue {
    */
   flush(options?: { force?: boolean; jobIds?: string[]; signal?: AbortSignal }): Promise<FlushResult>;
   retry(jobId: string): Promise<void>;
-  /** includeBlocked: 再ログイン後の救済に使う */
-  retryAll(options?: { includeBlocked?: boolean }): Promise<void>;
+  /**
+   * まとめて待機へ戻す。`includeBlocked` は再ログイン後の救済に使う。
+   *
+   * **利用権が無い（`entitlement`）ジョブは既定で対象外。**
+   * 再ログインしても状況は変わらないので、戻しても同じ理由で blocked に返るだけ。
+   * 管理者が利用権を付与したあとに送り直すときだけ `includeEntitlement` を使う。
+   */
+  retryAll(options?: { includeBlocked?: boolean; includeEntitlement?: boolean }): Promise<void>;
 
   cancel(jobId: string): Promise<void>;
   remove(jobId: string): Promise<void>;
