@@ -47,6 +47,12 @@ export async function openFieldDB(
           const tokens = db.createObjectStore("tokens", { keyPath: "jobId" });
           tokens.createIndex("by-expires", "expiresAt");
         }
+        // v2: 下書き（M4）。既存のストアには触らない
+        if (oldVersion < 2) {
+          const drafts = db.createObjectStore("drafts", { keyPath: "draftId" });
+          drafts.createIndex("by-updated", "updatedAt");
+          drafts.createIndex("by-type", "type");
+        }
         // 以降のバージョンはここに追記する。
         // 未送信ジョブは端末にしか無いデータなので、移行では絶対に消さないこと。
       },

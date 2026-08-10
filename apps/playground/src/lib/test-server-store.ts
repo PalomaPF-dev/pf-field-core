@@ -29,6 +29,8 @@ export interface SessionState {
   mode: FailureMode;
   /** バケット内パス → バイト数 */
   objects: Map<string, number>;
+  /** 中身そのもの。閲覧URLで返して画像表示まで通すために持つ */
+  bodies: Map<string, Uint8Array>;
   /** アップロードを受けた回数（attachmentId ごと）。二重送信の検査に使う */
   uploadCounts: Map<string, number>;
   /** 冪等キー（jobId）→ 採番した ID。重複は 409 で返す */
@@ -46,6 +48,7 @@ export function session(id: string): SessionState {
     state = {
       mode: "ok",
       objects: new Map(),
+      bodies: new Map(),
       uploadCounts: new Map(),
       submitted: new Map(),
       submitAttempts: 0,

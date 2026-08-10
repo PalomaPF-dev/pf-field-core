@@ -1,4 +1,5 @@
 import type { CompressImageOptions } from "./image/types.js";
+import type { DraftStore } from "./draft/store.js";
 import type { FileUrlResolver, StorageAdapter } from "./storage/types.js";
 import type { SubmitAdapter } from "./submit/types.js";
 import type { BackoffOptions } from "./queue/backoff.js";
@@ -122,6 +123,12 @@ export interface StorageInfo {
 export interface FieldCore {
   queue: OfflineQueue;
   files: FileUrlResolver;
+  /**
+   * 下書き（入力中の値）の保管。
+   * Zebra 端末は WebView をバックグラウンドで kill するので、
+   * ここに落としておかないと「圏外で入力を継続する」が成立しない。
+   */
+  drafts: DraftStore;
   storage(): Promise<StorageInfo>;
   destroy(): Promise<void>;
 }

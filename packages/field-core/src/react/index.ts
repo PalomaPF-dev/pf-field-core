@@ -9,9 +9,31 @@ import type { CapabilityOverrides, FieldCapabilities, ProbedCapabilities } from 
 /**
  * React バインディング。
  *
- * M0 では実機の機能検出フックのみ。
- * useOfflineQueue / useNetworkStatus / useSignedUrl などは M4 で入る。
+ * 状態の購読は `useSyncExternalStore`。キューは React の外（別タブ・
+ * Service Worker）でも進むので、`useState` で写し取ると画面だけ古くなる。
  */
+
+export { FieldCoreProvider, useFieldCore, useFieldCoreContext } from "./provider.js";
+export type { FieldCoreContextValue, FieldCoreProviderProps } from "./provider.js";
+
+export { useOfflineQueue, useQueueJob } from "./use-queue.js";
+export type { UseOfflineQueueResult, UseQueueJobResult } from "./use-queue.js";
+
+/** 通信状態。navigator.onLine を信じず、実際に届くかを確かめる */
+export { useNetworkStatus } from "./use-network.js";
+export type {
+  NetworkQuality,
+  UseNetworkStatusOptions,
+  UseNetworkStatusResult,
+} from "./use-network.js";
+
+/** 閲覧用の署名付きURL（バッチ + キャッシュ） */
+export { useSignedUrl, useSignedUrls } from "./use-signed-url.js";
+export type { UseSignedUrlResult, UseSignedUrlsResult } from "./use-signed-url.js";
+
+/** 下書き。圏外で入力を続けるための土台 */
+export { useDraft } from "./use-draft.js";
+export type { UseDraftOptions, UseDraftResult } from "./use-draft.js";
 
 export interface UseImageCapabilitiesResult {
   /** 検出前は null。SSR と初回描画を一致させるため、検出は effect の中で行う */

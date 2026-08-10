@@ -61,6 +61,25 @@ export interface StoredJobToken {
   createdAt: number;
 }
 
+/**
+ * 下書き。まだ送信を頼まれていない、利用者が編集中のもの。
+ *
+ * Zebra 端末は WebView をバックグラウンドで kill するので、
+ * ここに落としておかないと「圏外で入力を継続する」が成立しない。
+ * 送信を頼まれた（enqueue した）時点で役目を終える。
+ */
+export interface StoredDraft {
+  draftId: string;
+  /** ジョブ種別と同じ体系。'setsubi.inspection' 等 */
+  type: string;
+  /** 入力中の値。アプリが自由に決める */
+  value: unknown;
+  /** 未送信一覧に出す表示名 */
+  label?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface MetaRecord {
   key: string;
   value: unknown;
@@ -97,6 +116,14 @@ export interface FieldCoreDB extends DBSchema {
       "by-expires": number;
     };
   };
+  drafts: {
+    key: string;
+    value: StoredDraft;
+    indexes: {
+      "by-updated": number;
+      "by-type": string;
+    };
+  };
 }
 
 /**
@@ -108,7 +135,13 @@ export interface FieldCoreDB extends DBSchema {
  */
 export const DEFAULT_JOB_TOKEN_TTL_MS = 26 * 60 * 60 * 1000;
 
-export const DB_VERSION = 1;
+/**
+ * v2: `drafts` ストアを追加（M4）。
+ *
+ * 移行では**既存のストアに触らない**。未送信ジョブは端末にしか無いデータで、
+ * ここで消すと現場の点検結果がそのまま失われる。
+ */
+export const DB_VERSION = 2;
 
 export const META_KEYS = {
   /** 送信ランナーのリース（Web Locks が使えない環境のフォールバック） */
