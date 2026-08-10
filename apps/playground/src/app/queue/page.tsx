@@ -102,7 +102,8 @@ export default function QueuePage() {
     let off: (() => void) | undefined;
 
     void (async () => {
-      const queue = await createOfflineQueue({
+      try {
+        const queue = await createOfflineQueue({
         appId: "playground",
         processor: createDemoProcessor(() => modeRef.current),
         // 圏外の再現時に何十秒も待たされないよう、検証用に短くしてある
@@ -111,15 +112,26 @@ export default function QueuePage() {
         retention: { maxUnsentJobs: 8, maxUnsentAttachments: 12, maxUnsentBytes: 8 * 1024 * 1024 },
         autoStart: false,
       });
-      if (disposed) {
-        void queue.destroy();
-        return;
+        if (disposed) {
+          void queue.destroy();
+          return;
+        }
+        queueRef.current = queue;
+        off = queue.subscribe((s) => {
+          setSnapshot(s);
+          void refresh();
+        });
+      } catch (error) {
+        // 握りつぶすと「ボタンを押しても何も起きない」になり、原因が判らなくなる
+        if (!disposed) {
+          setMessage({
+            kind: "ng",
+            text: `キューを初期化できませんでした: ${
+              error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+            }`,
+          });
+        }
       }
-      queueRef.current = queue;
-      off = queue.subscribe((s) => {
-        setSnapshot(s);
-        void refresh();
-      });
     })();
 
     return () => {
@@ -153,7 +165,7 @@ export default function QueuePage() {
     (photos: number) =>
       run(async () => {
         const queue = queueRef.current;
-        if (!queue) return;
+        if (!queue) throw new Error("キューが初期化されていません");
         const attachments = [];
         for (let i = 0; i < photos; i++) {
           const photo = await createSyntheticPhoto(1600, 1200, 1);
@@ -195,19 +207,19 @@ export default function QueuePage() {
         </p>
       </div>
 
+      {message && (
+        <div className="card" data-testid="message">
+          <span className={`badge ${message.kind}`}>{message.kind === "ok" ? "OK" : "エラー"}</span>{" "}
+          {message.text}
+        </div>
+      )}
+
       {storage && storage.level !== "ok" && (
         <div className="card">
           <span className={`badge ${storage.level === "critical" ? "ng" : "warn"}`}>
             {storage.level === "critical" ? "保存できません" : "容量注意"}
           </span>{" "}
           {storage.reason}
-        </div>
-      )}
-
-      {message && (
-        <div className="card">
-          <span className={`badge ${message.kind}`}>{message.kind === "ok" ? "OK" : "エラー"}</span>{" "}
-          {message.text}
         </div>
       )}
 

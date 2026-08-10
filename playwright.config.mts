@@ -37,6 +37,23 @@ export default defineConfig({
           : {}),
       },
     },
+    {
+      /**
+       * iPhone（WebKit）。当面は Android と併用するため、こちらでも通す必要がある。
+       *
+       * Chromium との差は主に2点:
+       *   - Background Sync が無い（送信はアプリを開いている間だけ）
+       *   - ストレージの永続化が拒否されやすく、7日で消えることがある
+       *
+       * それらの分岐は capabilities で判定しているので、ここでは
+       * **エンジンに依らず成り立つべき不変条件**だけを見る。
+       */
+      name: "ios-safari",
+      use: {
+        ...devices["iPhone 13"],
+        browserName: "webkit",
+      },
+    },
   ],
 
   /**

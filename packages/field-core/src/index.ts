@@ -15,6 +15,33 @@
 
 export { VERSION } from "./version.js";
 
+/**
+ * 端末能力。
+ *
+ * Android と iOS で送信の振る舞いが根本的に違う（Background Sync の有無）ため、
+ * UI が出し分けられるように公開している。
+ * 「送信が終わるまでアプリを開いたままにしてください」を出す条件は
+ * `requiresForegroundToSend`。
+ */
+export {
+  describeSyncBehaviour,
+  detectCapabilities,
+  detectPlatform,
+  probeCapabilities,
+  syncTriggersFor,
+} from "./capabilities/index.js";
+export type {
+  CapabilityOverrides,
+  FieldCapabilities,
+  PlatformKind,
+  ProbedCapabilities,
+  SyncTrigger,
+} from "./capabilities/index.js";
+
+// 端末ストレージの消失検知（iOS Safari の7日ルール・容量逼迫）
+export { describeEviction, detectEviction, readSentinel } from "./db/eviction.js";
+export type { EvictionSignal, StorageSentinel } from "./db/eviction.js";
+
 // 設定
 export type {
   FieldAppId,

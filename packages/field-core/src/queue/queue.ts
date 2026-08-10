@@ -1,6 +1,6 @@
 import { compressImage } from "../image/compress.js";
 import type { CompressedImage, CompressImageOptions } from "../image/types.js";
-import { deleteOrphanBlobs, getBlob } from "../db/blobs.repo.js";
+import { deleteOrphanBlobs, getBlob, toStoredBlob } from "../db/blobs.repo.js";
 import {
   findSucceededBefore,
   getCounts,
@@ -22,7 +22,19 @@ import {
   type RetentionLimits,
   type StorageHealth,
 } from "../db/quota.js";
-import { DEFAULT_JOB_TOKEN_TTL_MS, defaultDbName, type StoredJob } from "../db/schema.js";
+import {
+  DEFAULT_JOB_TOKEN_TTL_MS,
+  defaultDbName,
+  type StoredBlob,
+  type StoredJob,
+} from "../db/schema.js";
+import {
+  clearSentinel,
+  describeEviction,
+  detectEviction,
+  readSentinel,
+  writeSentinel,
+} from "../db/eviction.js";
 import {
   deleteAllJobTokens,
   deleteExpiredJobTokens,
@@ -144,6 +156,7 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
   let lastError: QueueError | null = null;
   let cachedHealth: { at: number; value: StorageHealth } | null = null;
   let destroyed = false;
+  let evictionSuspected = false;
 
   const triggers = createTriggers({
     onTrigger: (reason) => {
@@ -162,7 +175,7 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     if (!force && cachedHealth && at - cachedHealth.at < HEALTH_CACHE_MS) {
       return cachedHealth.value;
     }
-    const value = await getStorageHealth(db, { quota, retention }, { persisted });
+    const value = await getStorageHealth(db, { quota, retention }, { persisted, evictionSuspected });
     cachedHealth = { at, value };
     return value;
   }
@@ -179,16 +192,24 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
 
   async function notify(): Promise<void> {
     if (destroyed) return;
-    emitter.emit("change", await snapshot());
+    const current = await snapshot();
+    // 消失検知の目印。IndexedDB だけが消えたときに気づけるようにする
+    writeSentinel(options.appId, {
+      unsent: current.counts.unsent,
+      at: now(),
+      dbName: options.dbName ?? defaultDbName(options.appId),
+    });
+    emitter.emit("change", current);
   }
 
   // ---------------------------------------------------------------- enqueue
 
   async function prepareAttachments(
+    jobId: string,
     inputs: QueueAttachmentInput[],
-  ): Promise<{ attachments: QueueAttachment[]; blobs: { attachmentId: string; blob: Blob }[] }> {
+  ): Promise<{ attachments: QueueAttachment[]; records: StoredBlob[] }> {
     const attachments: QueueAttachment[] = [];
-    const blobs: { attachmentId: string; blob: Blob }[] = [];
+    const records: StoredBlob[] = [];
 
     for (const input of inputs) {
       const attachmentId = input.attachmentId ?? uuid();
@@ -217,10 +238,12 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
         ...(compression ? { compression } : {}),
         ...(input.meta ? { meta: input.meta } : {}),
       });
-      blobs.push({ attachmentId, blob });
+      // バイト列への変換はここで済ませる。書き込みトランザクションの内側で
+      // 待つと、Safari ではその時点でトランザクションが確定してしまう
+      records.push(await toStoredBlob(jobId, attachmentId, blob));
     }
 
-    return { attachments, blobs };
+    return { attachments, records };
   }
 
   async function enqueue<P>(input: QueueJobInput<P>): Promise<QueueJob<P>> {
@@ -234,11 +257,28 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
 
     // 圧縮は enqueue のここで済ませる。送信時にはもう触らない
     // （署名付きURLの期限内に重い処理を挟まないため）
-    const { attachments, blobs } = await prepareAttachments(input.attachments ?? []);
+    const { attachments, records } = await prepareAttachments(jobId, input.attachments ?? []);
     const totalBytes = attachments.reduce((sum, a) => sum + a.bytes, 0);
 
     // 容量の確認は書き込みの直前に。ここで断れば、撮った直後に利用者へ伝えられる
-    const current = await health(true);
+    let current = await health(true);
+
+    /*
+     * 逼迫していたら、断る前に送信済みのジョブを古い順に片付ける。
+     *
+     * ただし期待しすぎないこと: 添付の実体は送信成功の時点で既に消しているので、
+     * ここで解放できるのはジョブのレコードぶんだけで、多くはない。
+     * 端末の空きを本当に空けられるのは「未送信を送り切る」ことだけで、
+     * 未送信を自動で捨てる選択肢は無い（端末にしか無いデータのため）。
+     */
+    if (current.level !== "ok") {
+      const purged = await purgeSucceeded(0);
+      if (purged > 0) {
+        logger.info("容量が逼迫していたため送信済みジョブを片付けました", { purged });
+        current = await health(true);
+      }
+    }
+
     assertCanEnqueue(current, { attachments: attachments.length, bytes: totalBytes }, {
       quota,
       retention,
@@ -273,14 +313,8 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     const tx = db.transaction(["jobs", "blobs"], "readwrite");
     await tx.objectStore("jobs").put(job);
     const blobStore = tx.objectStore("blobs");
-    for (const { attachmentId, blob } of blobs) {
-      await blobStore.put({
-        id: `${jobId}:${attachmentId}`,
-        jobId,
-        attachmentId,
-        blob,
-        bytes: blob.size,
-      });
+    for (const record of records) {
+      await blobStore.put(record);
     }
     await tx.done;
 
@@ -597,6 +631,25 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
       const purged = await purgeSucceeded();
       const expiredTokens = await deleteExpiredJobTokens(db);
       const orphanTokens = await deleteOrphanJobTokens(db);
+
+      /*
+       * IndexedDB が消えていないかを確かめる。
+       * iOS Safari は7日使わないと消す。利用者には「未送信バッジが0になった」
+       * としか見えないので、送れたのか消えたのかを区別して伝える必要がある。
+       */
+      const totalJobs = (await getCounts(db)).total;
+      const eviction = detectEviction(readSentinel(options.appId), totalJobs);
+      if (eviction) {
+        evictionSuspected = true;
+        const message = describeEviction(eviction);
+        logger.error(message, { lostJobs: eviction.lostJobs, lastSeenAt: eviction.lastSeenAt });
+        emitEvent("storage.evicted", {
+          lostJobs: eviction.lostJobs,
+          lastSeenAt: eviction.lastSeenAt,
+          message,
+        });
+        clearSentinel(options.appId);
+      }
       if (recovered.length > 0 || orphans > 0 || purged > 0 || expiredTokens > 0 || orphanTokens > 0) {
         logger.info("起動時の後片付けを行いました", {
           recovered: recovered.length,

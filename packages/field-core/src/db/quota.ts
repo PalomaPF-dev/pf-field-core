@@ -16,6 +16,19 @@ export interface StorageHealth {
   availableBytes: number | null;
   /** navigator.storage.persist() が許可されているか */
   persisted: boolean;
+  /** navigator.storage.persist() を呼べる環境か */
+  persistenceSupported: boolean;
+  /**
+   * 永続化に対応しているのに**拒否された**（iOS Safari では珍しくない）。
+   *
+   * この状態では、7日間サイトを開かないとブラウザが保存データを消す。
+   * 未送信を長く抱えたままにできないので、UI は送信を促す必要がある。
+   *
+   * API ごと無い環境は「判らない」であって拒否ではないので false のままにする。
+   */
+  persistenceDenied: boolean;
+  /** 消失を検知したか（db/eviction.ts）。検知は best-effort */
+  evictionSuspected: boolean;
   /**
    * ok       — 余裕がある
    * warn     — 空きが warnBelowBytes 未満、または滞留が上限の8割を超えた
@@ -112,15 +125,33 @@ export async function estimateStorage(): Promise<StorageEstimate> {
 export async function getStorageHealth(
   db: FieldDB,
   limits: { quota: QuotaLimits; retention: RetentionLimits },
-  options?: { persisted?: boolean },
+  options?: { persisted?: boolean; evictionSuspected?: boolean },
 ): Promise<StorageHealth> {
   const estimate = await estimateStorage();
   const unsent = await summarizeUnsent(db);
-  const { level, reason } = evaluate(estimate, unsent, limits);
+  const persisted = options?.persisted ?? false;
+  const evictionSuspected = options?.evictionSuspected ?? false;
+  const persistenceSupported =
+    typeof globalThis.navigator?.storage?.persist === "function";
+  const persistenceDenied = persistenceSupported && !persisted;
+
+  let { level, reason } = evaluate(estimate, unsent, limits);
+
+  // 永続化が拒否されていて未送信を抱えているのは、iOS では実害のある状態。
+  // 容量にはまだ余裕があっても「早く送ってください」と伝える必要がある
+  if (level === "ok" && persistenceDenied && unsent.jobs > 0) {
+    level = "warn";
+    reason =
+      "この端末では保存が保証されていません。未送信のデータは、しばらく使わないと" +
+      "ブラウザに消される場合があります。電波の届く場所で早めに送信してください。";
+  }
 
   return {
     ...estimate,
-    persisted: options?.persisted ?? false,
+    persisted,
+    persistenceSupported,
+    persistenceDenied,
+    evictionSuspected,
     level,
     reason,
     unsent,

@@ -4,6 +4,10 @@
 オフライン・アップロード基盤ライブラリの設計案。**この文書に合意してから実装に入る。**
 
 > **改訂履歴**
+> - rev.7 — 検証端末を **Android と iPhone の両方**に拡大。
+>   端末能力の公開 API（`capabilities`）を確定し、Background Sync 非対応時の
+>   フォールバックと iOS のストレージ制約への対応を追加（§iOS 対応）。
+>   DataWedge は iOS で無効化し手入力へフォールバックする。
 > - rev.6 — M2（IndexedDB + キュー）完了。環境変数を **`SUPABASE_SECRET_KEY` に統一**。
 >   pf-portal 調査で判明した **M3 の必須要件3点**を確定（§M3 の必須要件）—
 >   `redirect: "manual"`、`res.ok` だけで判定しない、**ジョブ単位の送信トークン**。
@@ -26,7 +30,7 @@
 
 | 項目 | 内容 | 設計への影響 |
 |---|---|---|
-| 端末 | Zebra Android ハンディ（TC/MC系） | CPU が非力。画像圧縮は Worker に逃がす |
+| 端末 | **Zebra Android ハンディ（TC/MC系）と iPhone の併用** | 送信の振る舞いが根本的に違う（Background Sync の有無）。UI が出し分けられるよう `capabilities` を公開する |
 | 回線 | モバイルSIM + 工場Wi-Fi 併用 | ネットワーク切替で TCP が切れる。切替直後の "つながっているが通らない" 状態を扱う |
 | 電波 | 建屋内に圏外・弱電界エリア | `navigator.onLine` は当てにならない（lie-fi）。到達性プローブが必須 |
 | ブラウザ | Android WebView / Chrome（Chromium ベース） | `createImageBitmap` / `OffscreenCanvas` / `Web Locks` / `Background Sync` すべて利用可 |
@@ -455,6 +459,20 @@ Web Locks が無い環境向けに IndexedDB のリースレコード（TTL 30�
 
 **ストレージ**: object store は `jobs` / `blobs` / `meta` の 3 本。
 Blob を job レコードから分離することで、一覧表示のたびに数MBを読まずに済む。
+
+> **添付は `Blob` ではなくバイト列（`ArrayBuffer`）で保存する。**
+> WebKit は IndexedDB に `Blob` を入れるときディスク上のファイルへ退避する経路を通り、
+> その経路が使えない状況（Safari のプライベートブラウズ、E2E の一時プロファイル）では
+> `UnknownError: Error preparing Blob/File data to be stored in object store` で
+> **書き込みごと失敗する**。写真を1枚も預かれないので、キューが丸ごと機能しない。
+> バイト列なら構造化複製がそのまま通り、エンジンや保存モードを問わず入る。
+> MIME 型は `contentType` として独立に持ち、読み出し時に `Blob` を組み立て直す。
+> 公開 API（`getAttachmentBlob()`）の戻り値は `Blob` のままなので、利用側の変更は不要。
+>
+> 同じ理由で、**書き込みトランザクションの内側で IndexedDB 以外の `await` をしない**。
+> Safari はそこでトランザクションを確定させてしまうため、`blob.arrayBuffer()` は
+> トランザクションを開く前に済ませる（`toStoredBlob()`）。
+
 `navigator.storage.persist()` を初期化時に要求し、`estimate()` で残量を監視。
 enqueue 時に残量不足なら `QuotaExceededError` を投げて UI に出す（黙って落とさない）。
 成功ジョブは既定 7日後に自動 purge。
@@ -1019,6 +1037,102 @@ const { reachable } = useNetworkStatus();
 **M1 の完了条件のうち未達**: 「実機の代表写真20枚」での確認。
 これは Zebra 実機と現場写真が要るので、`/bench` を実機で開いて採取してもらう。
 デスクトップの 234ms が実機で 6倍になっても 1.5 秒に収まる見込みだが、確認は要る。
+
+### iOS 対応（2026-08-10 追加）
+
+現場端末は将来的に Zebra Android だが、**当面は iPhone も併用する**。
+両者は送信の振る舞いが根本的に違う。
+
+| | Android Chrome | iOS Safari |
+|---|---|---|
+| Background Sync | あり。アプリを閉じても送信される | **無い。開いている間だけ** |
+| ストレージの永続化 | 概ね許可される | **拒否されやすい。7日使わないと消える** |
+| DataWedge | あり | **無い。手入力にフォールバック** |
+
+#### (1) 端末能力の公開 API — `capabilities`（**確定済み・実装済み**）
+
+他アプリの UI 実装が依存するので、インターフェースを先に確定した。
+
+```ts
+import { detectCapabilities, describeSyncBehaviour } from "@palomapf-dev/pf-field-core";
+import { useCapabilities } from "@palomapf-dev/pf-field-core/react";
+
+const { capabilities, probed, syncDescription } = useCapabilities();
+
+// 送信の注意書きを出すかどうか
+{capabilities.requiresForegroundToSend && (
+  <p>送信完了までアプリを開いたままにしてください</p>
+)}
+
+// スキャナか手入力か
+{capabilities.hardwareScanner ? <ScannerInput /> : <ManualInput />}
+```
+
+| フィールド | 意味 |
+|---|---|
+| `platform` | `'android' \| 'ios' \| 'other'`。iPadOS が Mac を名乗る件はタッチ点数で判別済み |
+| `backgroundSync` | Background Sync の可否 |
+| `requiresForegroundToSend` | **UI に注意書きを出す条件**（= `!backgroundSync`）|
+| `syncTriggers` | 実際に働く送信のきっかけ。説明文の組み立てに使える |
+| `hardwareScanner` | DataWedge を期待してよいか。**iOS では false** |
+| `storagePersistence` / `storageEstimate` / `webLocks` / `indexedDB` | ストレージ関連 |
+
+`detectCapabilities()` は副作用が無く同期で返るので、**ハイドレーション後の初回描画から正しい値**になる。
+`probeCapabilities()` は `persist()` の呼び出しを伴うので effect の中で解決する。
+
+`describeSyncBehaviour(capabilities)` が利用者向けの一文を返す。判定と文言を1箇所に置くため。
+
+#### (2) Background Sync 非対応時のフォールバック（**実装済み**）
+
+**「iOS では送信されない」ではない。** 開いている間は以下のきっかけで送られる:
+
+| きっかけ | 補足 |
+|---|---|
+| アプリを開いたとき | `start()` 直後 |
+| 前面に戻したとき | `visibilitychange` → visible |
+| フォーカス | `focus` |
+| **bfcache からの復帰** | `pageshow` (persisted)。iOS でアプリ間を行き来すると `visibilitychange` が期待どおり来ないことがあるため追加 |
+| 定期実行 | 既定60秒。未送信 0 のときは回さない |
+| オンライン復帰 | `online` |
+
+`test/ios-fallback.test.ts` で、これらすべてが発火することを固定してある。
+
+#### (3) iOS Safari のストレージ制約（**実装済み**）
+
+- **添付は Blob ではなくバイト列で保存する**（§2.3 の囲み参照）。
+  WebKit を E2E に入れて最初に見つかった実欠陥がこれで、
+  `UnknownError: Error preparing Blob/File data to be stored in object store` により
+  iOS ではキューが丸ごと機能していなかった。バイト列に変えて解消。
+- **`persist()` が拒否された場合**: 機能は止めない。ただし未送信を抱えている間は
+  `StorageHealth.level` を `warn` にし、「保存が保証されていません。早めに送信してください」を出す。
+  API ごと無い環境は「判らない」であって拒否ではないので警告しない（`persistenceSupported` で区別）。
+- **容量逼迫時**: `enqueue` を断る前に送信済みジョブを片付ける。
+  ただし**大きな効果は期待できない** — 添付の実体は送信成功の時点で既に消しているため、
+  解放できるのはレコードぶんだけ。空きを本当に空けられるのは「未送信を送り切る」ことだけで、
+  未送信を自動で捨てる選択肢は無い（端末にしか無いデータのため）。
+- **IndexedDB 消失の検知**: localStorage に未送信件数の目印を書き、起動時に実際の件数と突き合わせる。
+  「預かっていたはずなのに1件も無い」なら消失とみなし `storage.evicted` イベントを出す。
+  減っただけなら鳴らさない（送信できた可能性のほうが高く、誤検知の害が大きい）。
+  **best-effort**: iOS の7日ルールは localStorage も一緒に消すため、その場合は検知できない。
+  検知できるのは「IndexedDB だけが消えた」場合。
+
+#### (4) DataWedge（M6）— iOS では無効化
+
+`ScannerOptions.enabled` の既定は `capabilities.hardwareScanner`。iOS では自動的に false になる。
+アプリは false のとき手入力の UI を出し、`ScannerListener.submitManual(data)` で値を流す。
+受け側は `ScanEvent.source` で手入力かどうかを区別できる。
+
+#### (5) E2E に WebKit を追加
+
+Playwright の `ios-safari` プロジェクト（iPhone 13 / WebKit）を追加した。
+エンジンごとに答えが変わる値（採用レンダラ・WebP の可否・`from-image` の可否）は
+**断定せず、どのエンジンでも成り立つべき不変条件**（寸法・向き・上限バイト数・太らないこと）で見る。
+
+> ⚠ **WebKit は未実行。** 開発コンテナで WebKit をダウンロードできなかったため、
+> ローカルでの確認は Chromium のみ。**初回の CI 実行が実質的な初検証**になる。
+> 落ちた場合は、エンジン差なのか実装の穴なのかを切り分けて対応する。
+
+---
 
 ### M3 の必須要件（pf-portal 側の調査で判明・2026-08-10 確定）
 

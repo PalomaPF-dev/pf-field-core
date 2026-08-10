@@ -12,6 +12,13 @@ export interface ScanEvent {
 }
 
 export interface ScannerOptions {
+  /**
+   * 既定は `detectCapabilities().hardwareScanner`。
+   *
+   * DataWedge は Zebra 専用なので **iOS では自動的に false** になる。
+   * アプリは `capabilities.hardwareScanner` を見て、false のときは
+   * 手入力の UI を出し、`submitManual()` で値を流し込むこと。
+   */
   enabled?: boolean;
   /** これ未満の長さはスキャンとみなさない。既定 4 */
   minLength?: number;
@@ -34,8 +41,14 @@ export interface ScannerOptions {
 export interface ScannerListener {
   start(): void;
   stop(): void;
-  /** テストと手入力フォールバック用 */
-  simulate(data: string): void;
+  /**
+   * 手入力した値をスキャン結果として流す（`source: "manual"` になる）。
+   *
+   * ハードウェアスキャナが無い端末（iOS）でのフォールバック経路であり、
+   * テストからスキャンを再現するのにも使う。
+   * 受け側は `source` を見れば手入力かどうかを区別できる。
+   */
+  submitManual(data: string): void;
 }
 
 export const DEFAULT_SCANNER_OPTIONS = {

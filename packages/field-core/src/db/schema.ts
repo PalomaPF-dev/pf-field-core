@@ -21,13 +21,30 @@ export interface StoredJob extends QueueJob {
   activeBy?: string;
 }
 
+/**
+ * 添付の実体。
+ *
+ * **中身は Blob ではなくバイト列（ArrayBuffer）で持つ。**
+ *
+ * WebKit は IndexedDB に Blob を入れるとき、いったんディスク上のファイルへ
+ * 退避してその参照を記録する経路を通る。この経路が使えない状況
+ * （Safari のプライベートブラウズ、Playwright の一時プロファイル）では
+ * `UnknownError: Error preparing Blob/File data to be stored in object store`
+ * で書き込みごと失敗する。写真を預かれないので、キューが丸ごと機能しない。
+ *
+ * バイト列なら構造化複製がそのまま通り、エンジンや保存モードを問わず入る。
+ * MIME 型は Blob から独立して持ち、読み出し時に組み立て直す。
+ */
 export interface StoredBlob {
   /** `${jobId}:${attachmentId}` */
   id: string;
   jobId: string;
   attachmentId: string;
-  blob: Blob;
+  data: ArrayBuffer;
+  contentType: string;
   bytes: number;
+  /** 0.1.0 までの形式。読み出し時だけ面倒を見る（書き込みでは使わない） */
+  blob?: Blob;
 }
 
 /**

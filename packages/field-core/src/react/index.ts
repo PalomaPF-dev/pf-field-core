@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { probeImageCapabilities } from "../image/capabilities.js";
 import type { ImageCapabilities } from "../image/types.js";
+import { describeSyncBehaviour, detectCapabilities, probeCapabilities } from "../capabilities/detect.js";
+import type { CapabilityOverrides, FieldCapabilities, ProbedCapabilities } from "../capabilities/types.js";
 
 /**
  * React バインディング。
@@ -48,4 +50,76 @@ export function useImageCapabilities(): UseImageCapabilitiesResult {
   return { capabilities, probing };
 }
 
+export interface UseCapabilitiesResult {
+  /**
+   * 同期的に判る能力。SSR と初回描画を一致させるため、
+   * サーバ側では「何も無い」扱いの値が入る（描画には使わないこと）。
+   */
+  capabilities: FieldCapabilities;
+  /** 実際に呼び出して確かめた版。検出が終わるまでは null */
+  probed: ProbedCapabilities | null;
+  probing: boolean;
+  /** 送信の振る舞いを説明する一文。そのまま画面に出せる */
+  syncDescription: string;
+}
+
+/**
+ * 端末能力を返す。
+ *
+ * UI の出し分けに使う。例:
+ *
+ * ```tsx
+ * const { capabilities } = useCapabilities();
+ * {capabilities.requiresForegroundToSend && (
+ *   <p>送信が終わるまでアプリを開いたままにしてください</p>
+ * )}
+ * {capabilities.hardwareScanner ? <ScannerInput /> : <ManualInput />}
+ * ```
+ *
+ * `capabilities` はハイドレーション後の初回描画から正しい値になる
+ * （`detectCapabilities` は副作用が無いため）。
+ * `probed` は `navigator.storage.persist()` の呼び出しを伴うので effect の中で解決する。
+ */
+export function useCapabilities(overrides?: CapabilityOverrides): UseCapabilitiesResult {
+  const overrideKey = JSON.stringify(overrides ?? {});
+  // overrides はオブジェクトリテラルで渡されることが多い。
+  // 参照ではなく中身で比較しないと、毎描画で作り直してしまう
+  const capabilities = useMemo(() => detectCapabilities(overrides), [overrideKey, overrides]);
+
+  const [probed, setProbed] = useState<ProbedCapabilities | null>(null);
+  const [probing, setProbing] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setProbing(true);
+    probeCapabilities(overrides)
+      .then((result) => {
+        if (alive) setProbed(result);
+      })
+      .catch(() => {
+        if (alive) setProbed(null);
+      })
+      .finally(() => {
+        if (alive) setProbing(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [overrideKey, overrides]);
+
+  return {
+    capabilities,
+    probed,
+    probing,
+    syncDescription: describeSyncBehaviour(capabilities),
+  };
+}
+
 export type { ImageCapabilities } from "../image/types.js";
+export type {
+  CapabilityOverrides,
+  FieldCapabilities,
+  PlatformKind,
+  ProbedCapabilities,
+  SyncTrigger,
+} from "../capabilities/types.js";
