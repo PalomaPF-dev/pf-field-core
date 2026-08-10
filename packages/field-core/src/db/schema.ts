@@ -80,6 +80,38 @@ export interface StoredDraft {
   updatedAt: number;
 }
 
+/**
+ * マスタの一覧（設備台帳・点検表・職場）。
+ * 件数が少ないので差分同期はせず、コレクション単位で丸ごと置き換える。
+ */
+export interface StoredMaster {
+  /** `${scope}:${collection}` */
+  key: string;
+  collection: string;
+  scope: string;
+  items: unknown[];
+  version?: string;
+  fetchedAt: number;
+}
+
+/**
+ * 先読みしたメディア（正常見本・図面ピン）。
+ *
+ * **中身はバイト列で持つ**（`StoredBlob` と同じ理由。WebKit は IndexedDB へ
+ * Blob を入れる経路が使えない状況で書き込みごと失敗する）。
+ */
+export interface StoredAsset {
+  /** refKey(ref) */
+  key: string;
+  ref: unknown;
+  data: ArrayBuffer;
+  contentType: string;
+  bytes: number;
+  /** まとめて捨てるための括り（点検表ID・設備ID など） */
+  groupId: string;
+  fetchedAt: number;
+}
+
 export interface MetaRecord {
   key: string;
   value: unknown;
@@ -124,6 +156,21 @@ export interface FieldCoreDB extends DBSchema {
       "by-type": string;
     };
   };
+  masters: {
+    key: string;
+    value: StoredMaster;
+    indexes: {
+      "by-collection": string;
+    };
+  };
+  assets: {
+    key: string;
+    value: StoredAsset;
+    indexes: {
+      "by-group": string;
+      "by-fetched": number;
+    };
+  };
 }
 
 /**
@@ -136,12 +183,13 @@ export interface FieldCoreDB extends DBSchema {
 export const DEFAULT_JOB_TOKEN_TTL_MS = 26 * 60 * 60 * 1000;
 
 /**
- * v2: `drafts` ストアを追加（M4）。
+ * v2: `drafts` を追加（M4）。
+ * v3: `masters` / `assets` を追加（M6・マスタのローカルキャッシュ）。
  *
  * 移行では**既存のストアに触らない**。未送信ジョブは端末にしか無いデータで、
  * ここで消すと現場の点検結果がそのまま失われる。
  */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 export const META_KEYS = {
   /** 送信ランナーのリース（Web Locks が使えない環境のフォールバック） */
