@@ -37,5 +37,6 @@ export async function PUT(
   }
 
   state.objects.set(key, body.byteLength);
+  state.bodies.set(key, new Uint8Array(body));
   return new Response(null, { status: 200 });
 }

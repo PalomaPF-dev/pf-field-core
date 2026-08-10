@@ -1004,7 +1004,7 @@ const { reachable } = useNetworkStatus();
 | **M1b** | Worker オフロード（実測しだい）| 実機で `/bench` の「メインスレッドの詰まり」が実用に耐えない場合のみ着手 |
 | **M2** ✅ | 永続化 + キュー骨格（`db/`, `queue/`, 滞留上限, 排他, 送信トークン）| 状態遷移は全36通りを表で検証。fake-indexeddb と実ブラウザの両方で確認済み |
 | **M3** 🔶 | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 実装は全項目完了。**3-b（実エンドポイントでの確認）だけが未実行**（この環境から `*.supabase.co` へ到達できないため）。下記の M3 詳細を参照 |
-| **M4** | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
+| **M4** 🔶 | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | ライブラリ側は完了（Provider・各フック・下書き）。**pf-setsubi への投入は別リポジトリの作業として残っている**。<br> playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
 | **M5** | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | アプリを閉じた状態から Background Sync で送信完了。圏外でアプリシェルが起動し、**点検入力を新規に開始できる** |
 | **M6** | DataWedge | 実機で連続スキャンが取りこぼしなく拾える。手入力と誤認しない |
 | **M7** | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0` |

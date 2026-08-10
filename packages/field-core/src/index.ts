@@ -82,6 +82,17 @@ export {
   nextAttemptAt,
 } from "./queue/backoff.js";
 
+// 設定ひとつから一式を組み立てる入口
+export { configureFieldCore } from "./core.js";
+
+/** 下書き（入力中の値）。圏外で入力を継続するための土台 */
+export { createDraftStore } from "./draft/store.js";
+export type { Draft, DraftStore, DraftStoreOptions } from "./draft/store.js";
+
+/** 閲覧用URLの解決（バッチ + キャッシュ） */
+export { createFileUrlResolver } from "./storage/url-resolver.js";
+export type { UrlResolverOptions } from "./storage/url-resolver.js";
+
 // キュー本体
 export { createOfflineQueue } from "./queue/queue.js";
 export type { CompressFn, OfflineQueueOptions } from "./queue/queue.js";
