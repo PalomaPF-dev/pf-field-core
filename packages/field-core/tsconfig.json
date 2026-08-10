@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // 型定義の出力は tsup（rollup-plugin-dts）が担当する。
+    // ここは型検査だけを行うので noEmit。composite にすると tsup の dts ビルドが
+    // 「プロジェクトのファイル一覧に無い」と落ちるため、プロジェクト参照は使わない。
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "tsup.config.ts"]
+}

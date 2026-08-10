@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 型検査・Lint・テスト・ビルド
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 型検査
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: ユニットテスト
+        run: pnpm test
+
+      - name: ライブラリのビルド
+        run: pnpm build
+
+      # 実アプリと同じ経路（exports マップ経由で dist を読む）で読み込めることを確かめる
+      - name: playground のビルド
+        run: pnpm --filter @palomapf-dev/pf-field-playground build
+
+  e2e:
+    name: E2E（playground）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: ライブラリのビルド
+        run: pnpm build
+
+      - name: ブラウザの取得
+        run: pnpm exec playwright install --with-deps chromium
+
+      - run: pnpm test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

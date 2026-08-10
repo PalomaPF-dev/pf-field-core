@@ -1,0 +1,43 @@
+{
+  "name": "pf-field-core-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "現場系アプリ共通のオフライン・アップロード基盤（モノレポルート）",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "pnpm --filter @palomapf-dev/pf-field-core build",
+    "dev": "pnpm --filter @palomapf-dev/pf-field-core dev",
+    "typecheck": "pnpm --filter @palomapf-dev/pf-field-core typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "playground": "pnpm --filter @palomapf-dev/pf-field-playground dev",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+  },
+  "pnpm": {
+    "//": "pnpm 10 は postinstall を既定で止める。esbuild(tsup) と sharp(Next.js) はバイナリの配置に必要",
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.19.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
+}
