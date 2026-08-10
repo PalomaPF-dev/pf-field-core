@@ -64,6 +64,17 @@ for (const name of ["index.js", "image.js", "storage.js", "react.js", "scanner.j
   }
 }
 
+// 5. 出力に package.json の版数が焼き込まれている
+//    （VERSION を手で書いていた頃、changesets のバージョン更新と取り残されてずれた）
+const indexPath = join(dist, "index.js");
+if (existsSync(indexPath)) {
+  const source = readFileSync(indexPath, "utf8");
+  check(
+    source.includes(`"${pkg.version}"`) || source.includes(`'${pkg.version}'`),
+    `dist/index.js に版数 ${pkg.version} が焼き込まれていません（define の設定を確認してください）`,
+  );
+}
+
 if (failures.length > 0) {
   console.error("ビルド成果物の検査に失敗しました:");
   for (const f of failures) console.error(`  - ${f}`);

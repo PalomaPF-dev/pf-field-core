@@ -1,3 +1,5 @@
+import { VERSION } from "../version.js";
+
 /**
  * `pf-field-sw` — Service Worker のビルド CLI。
  * 各アプリの prebuild で `worker/sw.ts` → `public/sw.js` と precache manifest を生成する。
@@ -25,7 +27,7 @@ export function run(argv: string[]): number {
   }
 
   if (command === "--version" || command === "-v") {
-    process.stdout.write("0.0.1\n");
+    process.stdout.write(`${VERSION}\n`);
     return 0;
   }
 

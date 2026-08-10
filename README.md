@@ -84,6 +84,13 @@ pnpm changeset      # 変更内容を記録（PR に含める）
 `main` にマージされると Release ワークフローが「バージョン更新」PR を作り、
 その PR をマージすると GitHub Packages へ公開される。
 
+版数は `package.json` からビルド時に `VERSION` へ差し込まれる。手で書かないこと。
+
+> **リポジトリ設定が必要**: Settings → Actions → General → Workflow permissions の
+> 「Allow GitHub Actions to create and approve pull requests」を有効にしておく。
+> 無効だと、ブランチ `changeset-release/main` の push までは成功するが PR 作成で失敗する。
+> その場合はそのブランチから手で PR を作ってマージすれば publish まで進む。
+
 `1.0.0` に到達するまでは `0.x`。破壊的変更もマイナーで出す。
 
 ## ライセンス

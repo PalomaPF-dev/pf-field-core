@@ -1,4 +1,9 @@
+import { readFileSync } from "node:fs";
 import { defineConfig, type Options } from "tsup";
+
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
+  version: string;
+};
 
 /**
  * ESM のみを出力する。
@@ -14,6 +19,8 @@ const shared: Options = {
   sourcemap: true,
   clean: false, // package.json の clean スクリプトが担当（複数 config が dist を消し合わないため）
   treeshake: true,
+  // VERSION を手で書くと changesets のバージョン更新と必ずずれるので、ここから差し込む
+  define: { __PF_FIELD_CORE_VERSION__: JSON.stringify(pkg.version) },
 };
 
 export default defineConfig([
