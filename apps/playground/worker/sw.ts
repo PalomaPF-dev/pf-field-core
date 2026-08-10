@@ -2,6 +2,9 @@
  * playground の Service Worker。**アプリ側が書く sw.ts の見本**でもある。
  *
  * `pf-field-sw build` が `public/sw.js` に束ねる。
+ * （この monorepo では pnpm install がライブラリのビルド前に走り bin リンクが
+ *   張られないため、playground の package.json だけ dist/cli.js を直に叩いている。
+ *   公開パッケージを入れるアプリ側は `pf-field-sw build` でよい）
  * precache 一覧とビルド識別子はビルド時に差し込まれる。
  */
 import { createFieldServiceWorker } from "@palomapf-dev/pf-field-core/sw";
