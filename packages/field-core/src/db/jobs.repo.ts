@@ -224,11 +224,22 @@ export async function summarizeUnsent(db: FieldDB): Promise<UnsentSummary> {
 }
 
 /** 成功したジョブのうち、指定時刻より前に成功したものの ID。 */
+/**
+ * `before` 時点までに成功したジョブ。**境界を含む**。
+ *
+ * `<` にしてはいけない。`purgeSucceeded(0)` は「いま成功しているものを全部片付ける」
+ * という意味で使われ、その `before` は `now()` そのものになる。
+ * 厳密比較だと、同じミリ秒に成功したジョブだけが取り残される。
+ *
+ * これは机上の話ではない。容量が逼迫したときの `enqueue` は
+ * 断る前に `purgeSucceeded(0)` を呼ぶ。ここで最新の成功ジョブを取りこぼすと、
+ * 消せるものが残っているのに「もう入りません」と写真を断ることになる。
+ */
 export async function findSucceededBefore(db: FieldDB, before: number): Promise<string[]> {
   const index = db.transaction("jobs").store.index("by-status");
   const succeeded = await index.getAll("succeeded");
   return succeeded
-    .filter((job) => (job.succeededAt ?? job.updatedAt) < before)
+    .filter((job) => (job.succeededAt ?? job.updatedAt) <= before)
     .map((job) => job.jobId);
 }
 
