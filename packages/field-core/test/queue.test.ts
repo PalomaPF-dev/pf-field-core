@@ -8,6 +8,7 @@ import { getJob } from "../src/db/jobs.repo.js";
 import { markActive } from "../src/queue/state.js";
 import { FieldCoreError } from "../src/shared/errors.js";
 import { noopLogger } from "../src/shared/logger.js";
+import { setClock } from "../src/shared/clock.js";
 
 /**
  * キューの検証。fake-indexeddb の実装に対して走らせる。
@@ -612,6 +613,30 @@ describe("破棄と削除", () => {
 
     expect(await queue.purgeSucceeded(0)).toBe(1);
     expect(await queue.get(job.jobId)).toBeUndefined();
+  });
+
+  it("同じミリ秒に成功したジョブも purge(0) の対象になる", async () => {
+    /*
+     * CI で1回落ちて見つかった取りこぼし。境界が厳密比較だと、
+     * 「成功した瞬間に purge(0) を呼ぶ」と何も消えない。
+     *
+     * 実害があるのは容量逼迫時。enqueue は断る前に purgeSucceeded(0) を呼ぶので、
+     * ここで取りこぼすと、消せるものが残っているのに写真を断ることになる。
+     * 時計を固定して、運任せにせず境界そのものを固定する。
+     */
+    const at = 1_000_000;
+    const restore = setClock({ now: () => at });
+    try {
+      const queue = await makeQueue({ processor: alwaysOk() });
+      const job = await queue.enqueue({ type: "t", payload: {} });
+      await queue.flush({ force: true });
+
+      expect((await queue.get(job.jobId))?.succeededAt).toBe(at);
+      // before === succeededAt。ここが境界
+      expect(await queue.purgeSucceeded(0)).toBe(1);
+    } finally {
+      restore();
+    }
   });
 
   it("未送信ジョブは purge の対象にならない", async () => {
