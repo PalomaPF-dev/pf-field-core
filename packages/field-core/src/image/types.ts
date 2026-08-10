@@ -13,8 +13,6 @@ export interface CompressImageOptions {
   maxPasses?: number;
   /** 既定 'image/jpeg'。WebP は実機の互換確認後に検討する */
   mimeType?: CompressMimeType;
-  /** Worker で処理する。既定 true（不可なら自動でメインスレッドに落ちる） */
-  useWorker?: boolean;
   signal?: AbortSignal;
   onProgress?: (progress: CompressProgress) => void;
 }
@@ -25,7 +23,14 @@ export interface CompressProgress {
   pass: number;
 }
 
-export type ImageRenderer = "offscreen-worker" | "offscreen-main" | "canvas";
+/** canvas を使う経路 */
+export type CanvasRenderer = "offscreen-worker" | "offscreen-main" | "canvas";
+
+/**
+ * 'passthrough' は「再エンコードせず元の Blob をそのまま返した」ことを表す。
+ * すでに十分小さく向きの焼き込みも要らない写真は、触らないほうが画質が落ちない。
+ */
+export type ImageRenderer = CanvasRenderer | "passthrough";
 
 export interface CompressedImage {
   blob: Blob;
@@ -64,11 +69,11 @@ export interface ImageCapabilities {
   worker: boolean;
   webp: boolean;
   /** 上記から決まる、実際に使われるレンダラ */
-  renderer: ImageRenderer | "unavailable";
+  renderer: CanvasRenderer | "unavailable";
 }
 
 export const DEFAULT_COMPRESS_OPTIONS: Required<
-  Pick<CompressImageOptions, "maxEdge" | "quality" | "maxPasses" | "mimeType" | "useWorker">
+  Pick<CompressImageOptions, "maxEdge" | "quality" | "maxPasses" | "mimeType">
 > & {
   targetBytes: { min: number; max: number };
   qualityRange: { min: number; max: number };
@@ -79,5 +84,4 @@ export const DEFAULT_COMPRESS_OPTIONS: Required<
   qualityRange: { min: 0.45, max: 0.85 },
   maxPasses: 4,
   mimeType: "image/jpeg",
-  useWorker: true,
 };

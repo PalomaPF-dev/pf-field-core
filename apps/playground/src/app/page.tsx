@@ -28,6 +28,7 @@ export default function Home() {
       </p>
       <nav>
         <Link href="/diagnostics">実機診断 →</Link>
+        <Link href="/bench">圧縮の実機計測 →</Link>
       </nav>
 
       <h2>指数バックオフ（既定設定）</h2>

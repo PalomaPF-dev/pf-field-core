@@ -1,4 +1,4 @@
-import type { ImageCapabilities, ImageRenderer } from "./types.js";
+import type { CanvasRenderer, ImageCapabilities } from "./types.js";
 
 /** 1x1 の有効な PNG。機能検出用の最小入力。 */
 const TINY_PNG_BASE64 =
@@ -15,11 +15,11 @@ function globalValue(name: string): unknown {
   return (globalThis as unknown as Record<string, unknown>)[name];
 }
 
-function pickRenderer(caps: Omit<ImageCapabilities, "renderer">): ImageRenderer | "unavailable" {
+function pickRenderer(caps: Omit<ImageCapabilities, "renderer">): CanvasRenderer | "unavailable" {
   if (!caps.createImageBitmap && !caps.htmlCanvas) return "unavailable";
-  if (caps.offscreenCanvas && caps.convertToBlob) {
-    return caps.worker ? "offscreen-worker" : "offscreen-main";
-  }
+  // Worker へのオフロードは未実装（M1b）。`worker` は素の機能有無として残し、
+  // ここでは実際に走る経路だけを返す — 診断画面に嘘を出さないため
+  if (caps.offscreenCanvas && caps.convertToBlob) return "offscreen-main";
   if (caps.htmlCanvas) return "canvas";
   return "unavailable";
 }

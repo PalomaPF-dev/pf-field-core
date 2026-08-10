@@ -53,7 +53,7 @@ describe("getImageCapabilities", () => {
     expect(caps.renderer).toBe("unavailable");
   });
 
-  it("OffscreenCanvas と Worker が揃えば offscreen-worker を選ぶ", () => {
+  it("OffscreenCanvas があれば OffscreenCanvas 経路を選ぶ", () => {
     stubOffscreenCanvas();
     vi.stubGlobal("Worker", class {});
     vi.stubGlobal("createImageBitmap", () => Promise.resolve({}));
@@ -61,15 +61,19 @@ describe("getImageCapabilities", () => {
     const caps = getImageCapabilities();
     expect(caps.offscreenCanvas).toBe(true);
     expect(caps.convertToBlob).toBe(true);
-    expect(caps.renderer).toBe("offscreen-worker");
+    // Worker オフロードは未実装（M1b）。Worker があっても offscreen-worker とは言わない
+    expect(caps.renderer).toBe("offscreen-main");
+    expect(caps.worker).toBe(true);
   });
 
-  it("Worker が無ければメインスレッドの OffscreenCanvas に落ちる", () => {
+  it("Worker の有無は renderer の選択を変えない（まだ使っていないため）", () => {
     stubOffscreenCanvas();
     vi.stubGlobal("Worker", undefined);
     vi.stubGlobal("createImageBitmap", () => Promise.resolve({}));
 
-    expect(getImageCapabilities().renderer).toBe("offscreen-main");
+    const caps = getImageCapabilities();
+    expect(caps.renderer).toBe("offscreen-main");
+    expect(caps.worker).toBe(false);
   });
 
   it("OffscreenCanvas が無ければ HTMLCanvasElement に落ちる", () => {

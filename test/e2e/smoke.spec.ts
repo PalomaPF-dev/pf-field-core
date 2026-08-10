@@ -51,5 +51,6 @@ test("診断結果を JSON で採取できる", async ({ page }) => {
   // 実際、コンテキストを取らずに convertToBlob を呼んで InvalidStateError になり、
   // 「Chrome なのに WebP 非対応」と誤判定していたことがある
   expect(parsed.webp).toBe(true);
-  expect(parsed.renderer).toBe("offscreen-worker");
+  // Worker へのオフロードは未実装（M1b）なので、実際に走るのはメインスレッドの OffscreenCanvas
+  expect(parsed.renderer).toBe("offscreen-main");
 });
