@@ -1,5 +1,111 @@
 # @palomapf-dev/pf-field-core
 
+## 0.3.0
+
+### Minor Changes
+
+- 6aca7cd: M3（サーバ側）: Supabase Storage 実装 + Route Handler + S3 実装。
+
+  ```ts
+  // app/api/uploads/sign/route.ts
+  import {
+    createSignUploadRoute,
+    supabaseStorageFromEnv,
+  } from "@palomapf-dev/pf-field-core/server";
+
+  export const POST = createSignUploadRoute({
+    provider: supabaseStorageFromEnv(), // SUPABASE_URL / SUPABASE_SECRET_KEY / SUPABASE_BUCKET
+    appId: "pf-setsubi",
+    authorize: async (request) => {
+      const session = await requireSession(request);
+      return session
+        ? { userId: session.userId, companyId: session.companyId }
+        : undefined;
+    },
+  });
+  ```
+
+  **新しい公開 API（`/server` サブパス）**
+
+  - `createSupabaseStorageProvider()` / `supabaseStorageFromEnv()`
+  - `createSignUploadRoute()` / `createSignViewRoute()` — 2 本の Route Handler
+  - `createS3StorageProvider()` — S3 互換（抽象が効いていることの検証用）
+  - `defaultObjectPath()` / `companyIdOfPath()` / `sanitizeSegment()`
+
+  **パス規約（確定）**
+
+  ```
+  field-uploads/<companyId>/<appId>/<YYYY>/<MM>/<jobId>/<attachmentId>
+  ```
+
+  `companyId` が取れない場合はパス生成を**例外にする**。
+  既定値で埋めると全社ぶんが同じプレフィックスに落ち、テナント分離が静かに消えるため。
+
+  **テナント分離について**
+
+  署名鍵（`sb_secret_`）は **RLS を迂回する**ので、Storage のポリシーはサーバ経路の
+  防御にならない。守っているのは `authorize()`・サーバ側パス生成・閲覧時の会社照合の 3 つだけ。
+  RLS ポリシーを未作成にしているのは anon からの直接操作を全拒否するためで、
+  サーバ経路の安全性とは別の話。詳細は `docs/supabase-setup.md`。
+
+  **S3 実装の署名は AWS 公式の計算例と一致することを検証済み**（SigV4 を自前実装しているため）。
+
+  **未確認**: 実エンドポイントでの確認（3-b）は未実行。
+  開発環境から `*.supabase.co` へ到達できないため。
+  `pnpm verify:supabase` を鍵のある環境で 1 回流せば確定する。
+  外れうるのは `bodyMode`（`binary` / `form-data`）だけで、
+  その場合の変更は `server/supabase.ts` の 1 箇所に閉じ、端末側は影響を受けない。
+
+- 6aca7cd: M3（端末側）: 送信ランナー — 署名 → アップロード → 本体送信。
+
+  Supabase の実地部分（3-b/3-c/3-d）はプロジェクト準備待ちだが、
+  端末側は先に完成させた。裏が Supabase になっても端末のコードは変わらない。
+
+  ```ts
+  import { createOfflineQueue, createUploadProcessor, createHttpSubmitAdapter } from "@palomapf-dev/pf-field-core";
+  import { createHttpSignedStorageAdapter } from "@palomapf-dev/pf-field-core/storage";
+
+  const queue = await createOfflineQueue({
+    appId: "pf-setsubi",
+    processor: createUploadProcessor({
+      storage: createHttpSignedStorageAdapter(),           // 既定: /api/uploads/sign
+      submit: createHttpSubmitAdapter({ urls: { "setsubi.inspection": "/api/inspections" } }),
+    }),
+    issueJobToken: async ({ jobId }) => /* 認証が生きているうちに発行 */,
+  });
+  ```
+
+  **新しい公開 API**
+
+  - `createUploadProcessor()` — 送信ランナー本体
+  - `createHttpSignedStorageAdapter()` — 既定のアップロード経路（プロバイダ非依存）
+  - `createMemoryStorageAdapter()` — 通信しないアダプタ。アプリ側のテスト用
+  - `createHttpSubmitAdapter()` — レコード本体の POST（冪等キー付き）
+  - `uploadToTarget()` / `UploadFailure` — 独自アダプタを書く場合の下回り
+
+  **M3 の必須要件 3 点は実装で満たしている**
+
+  1. すべての送信は `redirect: "manual"`。XHR は指定できないので `responseURL` で追跡を検出する
+  2. `res.ok` では判定しない。リダイレクト → 2xx → ステータス別、の順に明示的に分類する
+  3. 認証はジョブ単位の送信トークン。`Authorization: Bearer <jobToken>` で送り、
+     **401 でもジョブは捨てず `blocked(auth)` で端末に残す**。
+     期限切れを検知したら通信する前に止める（投げても 401 になるだけなので）
+
+  **振る舞いの変更**
+
+  - `flush({ force: true })` が**バックオフの残り時間を無視する**ようになった。
+    バックオフは自動再試行を散らすためのもので、電波の良い所まで歩いてきて
+    送信ボタンを押した人を待たせる理由が無い。押しても何も起きない画面は現場で故障と見なされる。
+    自動の周回（`force` なし）は従来どおり待つ
+  - 添付の並列アップロードを `Promise.allSettled` で待つようにした。
+    `all` は最初の失敗で即 reject するため、並走中の添付が送信途中で見捨てられ、
+    そのぶんの完了を記録できずに次回また最初から送り直しになっていた
+
+  **`ProcessContext` に追加**（独自ランナーを書いている場合のみ影響）
+
+  - `authHeaders()` — そのジョブの認証ヘッダ。トークンはキューが持つのでランナーは中身を知らない
+  - `reloadJob()` — 送信直前に ref を読み直す
+
 ## 0.2.0
 
 ### Minor Changes
