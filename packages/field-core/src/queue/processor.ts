@@ -18,8 +18,22 @@ export interface ProcessContext {
   /** ジョブが中止されたら発火する */
   signal: AbortSignal;
 
+  /**
+   * このジョブを送るための認証ヘッダ。
+   *
+   * トークンはキュー側が持つ（`tokens` ストア。`list()` には乗らない）ので、
+   * ランナーは中身を知らずにヘッダだけ受け取る。
+   */
+  authHeaders(): Promise<JobAuthHeaders>;
+
   /** 添付の実体を取り出す */
   attachmentBlob(attachmentId: string): Promise<Blob | undefined>;
+
+  /**
+   * ジョブを DB から読み直す。
+   * `onAttachmentUploaded` で書いた ref を、送信直前に取り直すために使う。
+   */
+  reloadJob?(): Promise<QueueJob | undefined>;
 
   /**
    * 添付1件のアップロード完了を記録する。
@@ -35,3 +49,15 @@ export interface ProcessContext {
 export type ProcessOutcome =
   | { ok: true; serverId?: string; duplicated?: boolean }
   | { ok: false; error: QueueError };
+
+/** 送信時に付けるヘッダと、トークンが取れたかどうか。 */
+export interface JobAuthHeaders {
+  headers: Record<string, string>;
+  /**
+   * トークンを使う構成なのに取り出せなかった（期限切れ・端末から消えた）。
+   *
+   * true なら、通信する前に auth エラーへ倒してよい。投げても 401 になるだけで、
+   * 弱電界では無駄な往復が数十秒の「送信中」に化ける。
+   */
+  tokenMissing: boolean;
+}

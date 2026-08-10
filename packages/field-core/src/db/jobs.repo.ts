@@ -121,7 +121,7 @@ export function byPriorityThenAge(a: StoredJob, b: StoredJob): number {
 /** いま実行してよいジョブ（pending かつ待ち時間を過ぎたもの）を、実行順に返す。 */
 export async function listRunnable(
   db: FieldDB,
-  options?: { limit?: number; jobIds?: string[]; at?: number },
+  options?: { limit?: number; jobIds?: string[]; at?: number; ignoreBackoff?: boolean },
 ): Promise<StoredJob[]> {
   const at = options?.at ?? now();
   const index = db.transaction("jobs").store.index("by-status");
@@ -132,7 +132,15 @@ export async function listRunnable(
     jobs = jobs.filter((job) => wanted.has(job.jobId));
   }
 
-  jobs = jobs.filter((job) => job.nextAttemptAt === null || job.nextAttemptAt <= at);
+  /*
+   * バックオフは「自動で殺到させない」ための仕組みであって、
+   * 人が電波の良い所まで歩いてきて送信ボタンを押した場面まで止めるものではない。
+   * ここで待たせると、押しても何も起きない画面になり、現場では故障と見なされる。
+   * だから利用者の明示操作（flush({force:true})）だけは待ち時間を無視する。
+   */
+  if (!options?.ignoreBackoff) {
+    jobs = jobs.filter((job) => job.nextAttemptAt === null || job.nextAttemptAt <= at);
+  }
   jobs.sort(byPriorityThenAge);
 
   return options?.limit === undefined ? jobs : jobs.slice(0, options.limit);

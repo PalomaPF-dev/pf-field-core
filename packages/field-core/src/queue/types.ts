@@ -171,7 +171,14 @@ export interface OfflineQueue {
   list(filter?: QueueFilter): Promise<QueueJob[]>;
   counts(): Promise<QueueCounts>;
 
-  /** 手動再送。到達性を確認してからランナーを1周回す */
+  /**
+   * ランナーを1周回す。
+   *
+   * `force` は利用者の明示操作（「いま送信する」）を表す。
+   * 到達性の事前確認を飛ばすことに加え、**バックオフの残り時間も待たない**。
+   * 電波の良い所まで歩いてきて押したのに数分待たされると、
+   * 現場では「押しても動かない」と受け取られるため。
+   */
   flush(options?: { force?: boolean; jobIds?: string[]; signal?: AbortSignal }): Promise<FlushResult>;
   retry(jobId: string): Promise<void>;
   /** includeBlocked: 再ログイン後の救済に使う */

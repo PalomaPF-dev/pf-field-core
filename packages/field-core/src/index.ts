@@ -85,7 +85,19 @@ export {
 // キュー本体
 export { createOfflineQueue } from "./queue/queue.js";
 export type { CompressFn, OfflineQueueOptions } from "./queue/queue.js";
-export type { JobProcessor, ProcessContext, ProcessOutcome } from "./queue/processor.js";
+export type {
+  JobAuthHeaders,
+  JobProcessor,
+  ProcessContext,
+  ProcessOutcome,
+} from "./queue/processor.js";
+
+/**
+ * 送信ランナー（M3）。署名 → アップロード → 本体送信 を1ジョブぶん進める。
+ * 通信の失敗をどう分類するかはここに集約されている。
+ */
+export { createUploadProcessor } from "./queue/upload-processor.js";
+export type { UploadProcessorOptions } from "./queue/upload-processor.js";
 export { createTriggers } from "./queue/triggers.js";
 export type { TriggerReason, Triggers } from "./queue/triggers.js";
 
@@ -164,6 +176,8 @@ export { refKey } from "./storage/types.js";
 
 export type { SubmitAdapter, SubmitResult } from "./submit/types.js";
 export { IDEMPOTENCY_HEADER } from "./submit/types.js";
+export { createHttpSubmitAdapter, DEFAULT_SUBMIT_TIMEOUT_MS, resolveSubmitUrl } from "./submit/http.js";
+export type { HttpSubmitAdapterOptions } from "./submit/http.js";
 
 // 下回り
 export { FieldCoreError, isFieldCoreError, NotImplementedError } from "./shared/errors.js";

@@ -399,7 +399,25 @@ describe("flush", () => {
     expect(processor.calls).toHaveLength(1);
   });
 
-  it("待ち時間が来ていないジョブは対象にしない", async () => {
+  it("自動の周回では、待ち時間が来ていないジョブに触らない", async () => {
+    const processor = createProcessor(() => ({ ok: false, error: NETWORK_ERROR }));
+    const queue = await makeQueue({ processor, backoff: { baseMs: 60_000, jitter: "none" } });
+    await queue.enqueue({ type: "t", payload: {} });
+
+    await queue.flush({ force: true });
+    expect(processor.calls).toHaveLength(1);
+
+    // オンライン復帰や定期実行で回ってきた場合。ここで待たないとサーバに殺到する
+    const second = await queue.flush();
+    expect(second).toMatchObject({ attempted: 0, reason: "empty" });
+  });
+
+  it("利用者が「いま送信する」を押したときは待ち時間を無視する", async () => {
+    /*
+     * バックオフは自動再試行を散らすためのもので、
+     * 電波の良い所まで歩いてきて押した人を待たせる理由は無い。
+     * ここで待つと「押しても何も起きない」画面になり、現場では故障と見なされる。
+     */
     const processor = createProcessor(() => ({ ok: false, error: NETWORK_ERROR }));
     const queue = await makeQueue({ processor, backoff: { baseMs: 60_000, jitter: "none" } });
     await queue.enqueue({ type: "t", payload: {} });
@@ -408,7 +426,8 @@ describe("flush", () => {
     expect(processor.calls).toHaveLength(1);
 
     const second = await queue.flush({ force: true });
-    expect(second).toMatchObject({ attempted: 0, reason: "empty" });
+    expect(second.attempted).toBe(1);
+    expect(processor.calls).toHaveLength(2);
   });
 
   it("優先度が高いものから、同じなら古いものから送る", async () => {
