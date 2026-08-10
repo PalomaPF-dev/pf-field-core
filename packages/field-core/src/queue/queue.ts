@@ -40,6 +40,7 @@ import {
   deleteExpiredJobTokens,
   deleteOrphanJobTokens,
   deleteJobToken,
+  getJobToken,
   putJobToken,
 } from "../db/tokens.repo.js";
 import type { JobTokenIssue } from "../config.js";
@@ -99,6 +100,13 @@ export interface OfflineQueueOptions {
   issueJobToken?: (job: { jobId: string; type: string }) => Promise<JobTokenIssue>;
   /** 送信トークンの既定の有効期限。既定26時間 */
   jobTokenTtlMs?: number;
+
+  /**
+   * 全リクエスト共通で足すヘッダ。
+   * ジョブ単位の送信トークン（Authorization: Bearer）はキューが自分で足すので、
+   * ここに書くのはそれ以外（テナント識別子など）。
+   */
+  authHeaders?: () => Promise<Record<string, string>>;
 
   /** 画像圧縮。テストから差し替えるためのフック */
   compress?: CompressFn;
@@ -444,7 +452,22 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
   function processContext(job: StoredJob, signal: AbortSignal): ProcessContext {
     return {
       signal,
+      authHeaders: async () => {
+        const base = (await options.authHeaders?.()) ?? {};
+        // トークン方式を使っていない構成（Cookie のみ等）では tokenMissing を立てない。
+        // 「使うと決めたのに無い」ときだけ、送る前に止める
+        if (!options.issueJobToken) return { headers: base, tokenMissing: false };
+
+        const token = await getJobToken(db, job.jobId);
+        if (!token) return { headers: base, tokenMissing: true };
+
+        return {
+          headers: { ...base, Authorization: `Bearer ${token.token}` },
+          tokenMissing: false,
+        };
+      },
       attachmentBlob: (attachmentId) => getBlob(db, job.jobId, attachmentId),
+      reloadJob: () => getJob(db, job.jobId),
       onAttachmentUploaded: async (attachmentId: string, ref: StoredObjectRef) => {
         await updateJob(db, job.jobId, (current) =>
           markAttachmentUploaded(current, attachmentId, ref),
@@ -564,7 +587,11 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
         if (destroyed || o?.signal?.aborted) break;
 
         const runnable = (
-          await listRunnable(db, { ...(o?.jobIds ? { jobIds: o.jobIds } : {}) })
+          await listRunnable(db, {
+            ...(o?.jobIds ? { jobIds: o.jobIds } : {}),
+            // 「いま送信する」を押したときは、バックオフの残り時間を待たない
+            ...(o?.force ? { ignoreBackoff: true } : {}),
+          })
         ).filter((job) => !attempted.has(job.jobId));
         if (runnable.length === 0) break;
 

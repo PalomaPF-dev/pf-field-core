@@ -19,7 +19,8 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "verify:supabase": "node scripts/verify-supabase.mjs"
   },
   "pnpm": {
     "//": "pnpm 10 は postinstall を既定で止める。esbuild(tsup) と sharp(Next.js) はバイナリの配置に必要",

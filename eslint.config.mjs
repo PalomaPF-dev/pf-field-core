@@ -33,6 +33,7 @@ export default tseslint.config(
     files: [
       "packages/*/src/cli/**/*.ts",
       "packages/*/scripts/**/*.mjs",
+      "scripts/**/*.mjs",
       "**/*.config.{mjs,mts,ts}",
     ],
     languageOptions: {
@@ -40,6 +41,9 @@ export default tseslint.config(
         process: "readonly",
         console: "readonly",
         __dirname: "readonly",
+        // Node 18+ の Web 標準グローバル。実地検証スクリプトが使う
+        fetch: "readonly",
+        Request: "readonly",
       },
     },
   },

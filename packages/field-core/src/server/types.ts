@@ -25,7 +25,13 @@ export interface StorageProvider {
 /** 認証済みの呼び出し元。各アプリの requireSession() 相当が返す。 */
 export interface AuthContext {
   userId: string;
-  /** 会社・テナントのスコープ。パス生成と権限確認に使う */
+  /**
+   * 会社のスコープ。**保存パスの第1階層になる**ので、テナント分離の要。
+   * 欠けたまま保存すると全社ぶんが同じプレフィックスに落ちるため、
+   * 既定のパス生成はここが無ければ例外にする。
+   */
+  companyId?: string;
+  /** `companyId` の旧称。移行期のために読むだけ受け付ける */
   tenantId?: string;
   [key: string]: unknown;
 }

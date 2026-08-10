@@ -1003,7 +1003,7 @@ const { reachable } = useNetworkStatus();
 | **M1** ✅ | 画像圧縮（EXIF / 向きの焼き込み / 品質の二分探索 / 実機計測ページ）| 下記「M1 の結果」参照。Worker オフロードのみ **M1b** へ延期 |
 | **M1b** | Worker オフロード（実測しだい）| 実機で `/bench` の「メインスレッドの詰まり」が実用に耐えない場合のみ着手 |
 | **M2** ✅ | 永続化 + キュー骨格（`db/`, `queue/`, 滞留上限, 排他, 送信トークン）| 状態遷移は全36通りを表で検証。fake-indexeddb と実ブラウザの両方で確認済み |
-| **M3** | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 下記の M3 詳細を参照 |
+| **M3** 🔶 | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 実装は全項目完了。**3-b（実エンドポイントでの確認）だけが未実行**（この環境から `*.supabase.co` へ到達できないため）。下記の M3 詳細を参照 |
 | **M4** | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
 | **M5** | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | アプリを閉じた状態から Background Sync で送信完了。圏外でアプリシェルが起動し、**点検入力を新規に開始できる** |
 | **M6** | DataWedge | 実機で連続スキャンが取りこぼしなく拾える。手入力と誤認しない |
@@ -1203,12 +1203,76 @@ Cookie が消えても、預かった写真は送れなければならない。
 
 | # | 作業 | 完了条件 |
 |---|---|---|
-| 3-a | `StorageAdapter` / `StorageProvider` / `UploadTarget` 型の確定 | `memory` アダプタでランナーの単体テストが全部通る（Supabase 不要でテストできる状態）|
-| 3-b | **Supabase 署名付きアップロードの実地検証（最優先・スパイク）** | ボディ形式・必須ヘッダ・期限・409 の挙動を実エンドポイントで確認し `bodyMode` を確定。XHR で進捗が取れるか判定し、駄目なら `uploadToSignedUrl` フォールバックを実装 |
-| 3-c | `supabaseStorageProvider` + 2つの Route Handler | RLS 有効な状態で発行→アップロード→閲覧が通る |
-| 3-d | RLS ポリシー設計 + `docs/supabase-setup.md` | 他アプリ領域・他ユーザー領域へ書けないことをテストで確認 |
-| 3-e | 送信ランナー本体 + `SubmitAdapter` | 「圏外→復帰→自動送信」「途中切断→残り添付だけ再送」「二重送信されない」が E2E で通る |
-| 3-f | `s3StorageProvider`（任意） | プロバイダを1行差し替えるだけで E2E が通ることを確認＝**抽象の妥当性検証** |
+| 3-a ✅ | `StorageAdapter` / `StorageProvider` / `UploadTarget` 型の確定 | `memory` アダプタでランナーの単体テストが全部通る（Supabase 不要でテストできる状態）|
+| 3-b 🔶 | **Supabase 署名付きアップロードの実地検証（最優先・スパイク）** | `pnpm verify:supabase` として実装済み。**未実行** — この環境から `*.supabase.co` へ到達できない（egress ポリシーが CONNECT を 403 で拒否）。鍵のある環境で1回流せば確定する |
+| 3-c ✅ | `supabaseStorageProvider` + 2つの Route Handler | `createSupabaseStorageProvider` / `createSignUploadRoute` / `createSignViewRoute` |
+| 3-d ✅ | RLS ポリシー設計 + `docs/supabase-setup.md` | 他社領域へ書けない・見られないことをテストで確認 |
+| 3-e ✅ | 送信ランナー本体 + `SubmitAdapter` | 「圏外→復帰→自動送信」「途中切断→残り添付だけ再送」「二重送信されない」が E2E で通る |
+| 3-f ✅ | `s3StorageProvider`（任意） | プロバイダを差し替えても端末側の記述子が同じ形になることをテストで確認＝**抽象の妥当性検証** |
+
+**3-b だけが未実行。** 実装（`scripts/verify-supabase.mjs`）はあるが、
+この開発環境から `*.supabase.co` へ到達できない（egress ポリシーが CONNECT を 403 で拒否）。
+迂回はしていない。鍵のある環境で `pnpm verify:supabase` を1回流せば確定する。
+
+未確認なのは次の2点で、いずれも外れても影響は1箇所に閉じている:
+
+| 項目 | 現在の実装 | 外れた場合 |
+|---|---|---|
+| 生バイナリ PUT を受け付けるか | `bodyMode: "binary"` | `server/supabase.ts` の `UPLOAD_BODY_MODE` を `'form-data'` に。**端末側は変更不要** |
+| 同一パス再送時の 409 | `x-upsert: true` で上書き | ランナーは 409 も成功として扱うので、どちらでも壊れない |
+
+### テナント分離（3-d の要点）
+
+**署名鍵（`sb_secret_`）は RLS を迂回する。** つまり Storage 側のポリシーは
+サーバ経路の防御にならない。ポリシーを未作成にしているのは
+「anon / authenticated からの直接操作を全部拒否する」ためであって、
+サーバ経路の安全性を担保しているわけではない。守っているのは次の3つだけ:
+
+| 守るもの | どこで |
+|---|---|
+| 認証されているか | Route Handler の `authorize()` |
+| どこへ書くか | サーバ側のパス生成（クライアントのファイル名は使わない） |
+| 何を見られるか | 閲覧時の `companyId` 前方一致チェック |
+
+パス規約は `<companyId>/<appId>/<YYYY>/<MM>/<jobId>/<attachmentId>`。
+`companyId` が取れない場合は**例外にする** — 既定値で埋めると全社ぶんが
+同じプレフィックスに落ち、分離が静かに消えるため。
+詳細は `docs/supabase-setup.md`。
+
+### 抽象が効いていることの確認（3-f）
+
+`s3StorageProvider` は SigV4 のクエリ署名を自前で作る（AWS SDK は入れない）。
+署名の正しさは **AWS 公式ドキュメントの計算例と突き合わせて**検証してある
+（`examplebucket/test.txt` の presigned URL が公式の期待値と一致する）。
+
+Supabase と S3 で、端末が受け取る記述子の形（`method` / `bodyMode` / `ref`）が
+同じであることをテストで固定した。ここが揃っている限り、
+プロバイダを差し替えても**端末側のコードは1行も変わらない**。
+
+**M3 端末側の実装（完了分）**
+
+| モジュール | 役割 |
+|---|---|
+| `storage/transport.ts` | 記述子1件ぶんの転送。進捗のため既定は XHR、Service Worker 内では fetch |
+| `storage/http-signed.ts` | 既定アダプタ。`/api/uploads/sign` を叩き、記述子どおりに送る |
+| `storage/memory.ts` | 通信しないアダプタ。ランナーの検証を Supabase 無しで回すため |
+| `submit/http.ts` | レコード本体の POST。冪等キーと 409 の扱いを含む |
+| `queue/upload-processor.ts` | 署名 → アップロード → 本体送信。失敗の分類はここに集約 |
+
+実装で確定した点:
+
+- **XHR はリダイレクトを追う。** `redirect: "manual"` に相当する指定ができないため、
+  `responseURL` とリクエスト URL のオリジン・パスを突き合わせて追跡を検出する。
+  クエリの差（署名の正規化）は追跡と見なさない
+- **添付は `Promise.allSettled` で待つ。** `all` は最初の失敗で即 reject するので、
+  並走中の添付が送信途中で見捨てられ、そのぶんの完了を記録できない。
+  弱電界では「次回また最初から」になるのがいちばん高くつく
+- **`flush({ force: true })` はバックオフの残り時間を無視する。**
+  バックオフは自動再試行を散らすための仕組みであって、
+  電波の良い所まで歩いてきて送信ボタンを押した人を待たせる理由が無い。
+  ここで待つと「押しても何も起きない」画面になり、現場では故障と見なされる
+- **写真が端末から失われていた添付は `blocked(validation)`。**
+  待っても戻らないので再試行しない。本文だけをサーバに登録することもしない
 
 3-b は**設計の前提を左右するので M3 の頭で単独スパイクとして先に片付ける**。
 ここで想定が外れた場合の影響範囲（進捗表示の粒度）は事前に握っておく。
