@@ -26,7 +26,11 @@ test.describe("オフラインキュー（実ブラウザ）", () => {
 
   test("追加すると未送信件数が増え、送信すると 0 になる", async ({ page }) => {
     await page.getByRole("button", { name: ADD_ONE }).click();
-    await expect(page.getByText("送信予約しました（写真 1 枚）")).toBeVisible({ timeout: 20_000 });
+
+    // 失敗したときに原因が出力へ載るよう、まず画面のメッセージ欄を読む
+    const message = page.getByTestId("message");
+    await expect(message).toBeVisible({ timeout: 20_000 });
+    await expect(message).toContainText("送信予約しました（写真 1 枚）");
     await expect(page.locator(".card").first()).toContainText("未送信 1 件");
 
     await page.getByRole("button", { name: "いま送信する" }).click();
