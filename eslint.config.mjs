@@ -9,6 +9,8 @@ export default tseslint.config(
       "**/.next/**",
       "**/coverage/**",
       "**/next-env.d.ts",
+      // pf-field-sw build の生成物。人が書くファイルではない
+      "**/public/sw.js",
     ],
   },
   js.configs.recommended,

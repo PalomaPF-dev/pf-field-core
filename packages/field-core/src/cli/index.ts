@@ -1,24 +1,35 @@
+import { buildServiceWorker } from "./build-sw.js";
 import { VERSION } from "../version.js";
 
 /**
  * `pf-field-sw` — Service Worker のビルド CLI。
- * 各アプリの prebuild で `worker/sw.ts` → `public/sw.js` と precache manifest を生成する。
- *
- * 実装は M5。M0 では、配線が正しいこと（bin が解決でき、実行できること）だけを確かめる。
+ * 各アプリの prebuild で `worker/sw.ts` → `public/sw.js` を生成する。
  */
 
 const HELP = `pf-field-sw — Service Worker ビルド CLI
 
   使い方:
-    pf-field-sw build [--entry worker/sw.ts] [--out public/sw.js]
+    pf-field-sw build [オプション]
 
-  状態:
-    未実装です（M5 で実装予定）。
-    現時点では設計の確認用に bin の配線だけが入っています。
-    設計は docs/DESIGN.md §2.5 を参照してください。
+  オプション:
+    --entry <path>    入力。既定 worker/sw.ts
+    --out <path>      出力。既定 public/sw.js
+    --public <path>   precache を探す起点。既定 public
+    --build-id <id>   ビルド識別子。既定は資産の内容から求める
+    --no-minify       圧縮しない（デバッグ用）
+
+  組み込み例（package.json）:
+    "prebuild": "pf-field-sw build"
+
+  設計は docs/DESIGN.md §2.5 を参照。
 `;
 
-export function run(argv: string[]): number {
+function flag(argv: string[], name: string): string | undefined {
+  const index = argv.indexOf(name);
+  return index >= 0 ? argv[index + 1] : undefined;
+}
+
+export async function run(argv: string[]): Promise<number> {
   const command = argv[2];
 
   if (command === undefined || command === "--help" || command === "-h") {
@@ -32,15 +43,34 @@ export function run(argv: string[]): number {
   }
 
   if (command === "build") {
-    process.stderr.write(
-      "pf-field-sw build は未実装です（M5 で実装予定）。\n" +
-        "M4 までは Service Worker を使わない構成で動作します。\n",
-    );
-    return 1;
+    try {
+      const result = await buildServiceWorker({
+        entry: flag(argv, "--entry") ?? "worker/sw.ts",
+        out: flag(argv, "--out") ?? "public/sw.js",
+        publicDir: flag(argv, "--public") ?? "public",
+        minify: !argv.includes("--no-minify"),
+        ...(flag(argv, "--build-id") ? { buildId: flag(argv, "--build-id")! } : {}),
+      });
+
+      process.stdout.write(
+        `Service Worker を生成しました: ${result.outFile}\n` +
+          `  ${(result.bytes / 1024).toFixed(1)}KB / precache ${result.precacheCount} 件\n`,
+      );
+      return 0;
+    } catch (error) {
+      process.stderr.write(
+        `Service Worker のビルドに失敗しました: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+      return 1;
+    }
   }
 
   process.stderr.write(`不明なコマンドです: ${command}\n\n${HELP}`);
   return 2;
 }
 
-process.exitCode = run(process.argv);
+void run(process.argv).then((code) => {
+  process.exitCode = code;
+});

@@ -1005,7 +1005,7 @@ const { reachable } = useNetworkStatus();
 | **M2** ✅ | 永続化 + キュー骨格（`db/`, `queue/`, 滞留上限, 排他, 送信トークン）| 状態遷移は全36通りを表で検証。fake-indexeddb と実ブラウザの両方で確認済み |
 | **M3** 🔶 | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 実装は全項目完了。**3-b（実エンドポイントでの確認）だけが未実行**（この環境から `*.supabase.co` へ到達できないため）。下記の M3 詳細を参照 |
 | **M4** 🔶 | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | ライブラリ側は完了（Provider・各フック・下書き）。**pf-setsubi への投入は別リポジトリの作業として残っている**。<br> playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
-| **M5** | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | アプリを閉じた状態から Background Sync で送信完了。圏外でアプリシェルが起動し、**点検入力を新規に開始できる** |
+| **M5** 🔶 | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | SW 実体・`pf-field-sw build`・Background Sync とその iOS フォールバックは完了。<br>**マスタのローカルキャッシュ（完全オフライン開始）は未着手** — 対象マスタがアプリ側で確定してから |
 | **M6** | DataWedge | 実機で連続スキャンが取りこぼしなく拾える。手入力と誤認しない |
 | **M7** | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0` |
 | **M8** | 横展開（pf-hinshitsu / pf-zaiko / pf-keisoku）| 4アプリすべてが同一メジャーバージョンで稼働 |
@@ -1037,6 +1037,44 @@ const { reachable } = useNetworkStatus();
 **M1 の完了条件のうち未達**: 「実機の代表写真20枚」での確認。
 これは Zebra 実機と現場写真が要るので、`/bench` を実機で開いて採取してもらう。
 デスクトップの 234ms が実機で 6倍になっても 1.5 秒に収まる見込みだが、確認は要る。
+
+### M5 の実装（Service Worker）
+
+| モジュール | 役割 |
+|---|---|
+| `sw/service-worker.ts` | SW 本体。キャッシュ戦略と Background Sync |
+| `sw/register.ts` | ページ側からの登録・sync 要求 |
+| `cli/build-sw.ts` | `pf-field-sw build`。`worker/sw.ts` → `public/sw.js` |
+| `react/use-service-worker.ts` | 登録と更新の通知 |
+
+実装で確定した点:
+
+- **認証済み HTML は Cache First にしない。** middleware が `private, no-store` を
+  付けているものを、こちらが勝手に端末へ残さない（docs/auth-findings.md §4-5）。
+  既定は Network First で、落ちたときだけオフライン用ページを返す
+- **署名の発行・認証・アップロードは `exclude` に入れて一切キャッシュしない。**
+  短命な署名や認証応答をキャッシュすると、切れたものを再利用して静かに失敗する
+- **署名付きメディアはクエリを外した鍵で持つ。** トークンがクエリに載るので、
+  そのままだと同じ画像でも発行のたびにミスし、キャッシュが際限なく膨らむ
+- **更新を勝手に適用しない**（`skipWaiting` 既定 false）。
+  点検の入力途中で SW が入れ替わってリロードされると、書きかけが消える。
+  `useServiceWorkerUpdate().applyUpdate()` を押したときだけ入れ替える
+- **`sync` の `waitUntil` は失敗を握りつぶさない。** reject させることで
+  ブラウザが後でもう一度起こしてくれる。握りつぶすと一度きりで諦めることになる
+- **SW 側のキューには `issueJobToken` を渡さない。** SW にセッションは無く、
+  新規発行はできない。投入時に預けたトークンで送るため `requireJobToken: true` を使う。
+  この分離が無いと、Background Sync 経由の送信だけ Authorization が落ちて 401 になる
+
+#### Background Sync が無い場合（iOS）
+
+`requestQueueSync()` は「登録できたか」ではなく
+**「前面での送信が要るか」**（`requiresForeground`）を返す。
+iOS はここが常に true になり、送信は画面が開いている間のトリガ
+（`visibilitychange` / `focus` / `pageshow` / 定期実行 / オンライン復帰）で走る。
+
+**これは劣化ではなく、iOS で取りうる唯一の経路。**
+E2E は値を決め打ちにせず「Background Sync が無いなら前面が要ると答える」という
+不変条件で両エンジンを見る。
 
 ### iOS 対応（2026-08-10 追加）
 

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev -p 5190",
     "build": "next build",
-    "start": "next start -p 5190 -H 127.0.0.1"
+    "start": "next start -p 5190 -H 127.0.0.1",
+    "build:sw": "pf-field-sw build --entry worker/sw.ts --out public/sw.js",
+    "prebuild": "pnpm run build:sw"
   },
   "dependencies": {
     "@palomapf-dev/pf-field-core": "workspace:*",
