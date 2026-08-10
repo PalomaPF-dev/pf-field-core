@@ -1,6 +1,6 @@
 {
   "name": "@palomapf-dev/pf-field-core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "現場系アプリ（pf-setsubi / pf-hinshitsu / pf-zaiko / pf-keisoku）共通のオフライン・アップロード基盤",
   "license": "UNLICENSED",
   "type": "module",
