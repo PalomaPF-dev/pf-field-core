@@ -16,7 +16,7 @@
 
 ```ini
 @palomapf-dev:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
 
 **トークンそのものは書かない。** 環境変数の参照だけを置く。
@@ -25,11 +25,15 @@
 
 `read:packages` スコープだけを持つトークンを発行し、以下に登録する。
 
+**変数名は `NPM_TOKEN` を正とする。** Vercel 側は既にこの名前で登録済みで、
+4アプリすべてを同じ名前に揃える（名前がずれると、展開したアプリだけが
+インストール時に 401 で落ちて原因が見えにくい）。
+
 | 場所 | 変数名 |
 |---|---|
-| Vercel（Production / Preview / Development すべて） | `GITHUB_PACKAGES_TOKEN` |
-| GitHub Actions（あれば） | `GITHUB_PACKAGES_TOKEN`（secrets）|
-| 開発者のローカル | シェルの環境変数 |
+| Vercel（Production / Preview / Development すべて） | `NPM_TOKEN` |
+| GitHub Actions（あれば） | `NPM_TOKEN`（secrets）|
+| 開発者のローカル | シェルの環境変数 `NPM_TOKEN` |
 
 ### 1-3. 依存の追加
 
