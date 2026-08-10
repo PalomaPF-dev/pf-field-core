@@ -40,6 +40,21 @@ const { capabilities, syncDescription } = useCapabilities();
 - IndexedDB の消失を検知して `storage.evicted` イベントを出す（best-effort）。
   `StorageHealth` に `persistenceSupported` / `persistenceDenied` / `evictionSuspected` を追加
 
+**添付の保存形式を Blob からバイト列へ（iOS でキューが動かなかった実欠陥）**
+
+WebKit は IndexedDB に `Blob` を入れるときディスク上のファイルへ退避する経路を通る。
+その経路が使えない状況（プライベートブラウズ、E2E の一時プロファイル）では
+`UnknownError: Error preparing Blob/File data to be stored in object store` で
+書き込みごと失敗し、**写真を1枚も預かれない**。WebKit を E2E に入れて発覚した。
+
+`StoredBlob` を `{ data: ArrayBuffer; contentType: string }` に変更し、
+読み出し時に `Blob` を組み立て直す。公開 API（`getAttachmentBlob()`）の戻り値は
+`Blob` のままなので**利用側の変更は不要**。0.1.0 までに保存された Blob 形式の
+レコードもそのまま読める（更新した端末が未送信の写真を失わないため）。
+
+同じ理由で、書き込みトランザクションの内側では IndexedDB 以外の `await` をしない
+（Safari はそこでトランザクションを確定させる）。
+
 **その他**
 
 - E2E に WebKit（iPhone 13）プロジェクトを追加。エンジン差のある値は断定せず不変条件で検証する

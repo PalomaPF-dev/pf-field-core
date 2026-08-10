@@ -459,6 +459,20 @@ Web Locks が無い環境向けに IndexedDB のリースレコード（TTL 30�
 
 **ストレージ**: object store は `jobs` / `blobs` / `meta` の 3 本。
 Blob を job レコードから分離することで、一覧表示のたびに数MBを読まずに済む。
+
+> **添付は `Blob` ではなくバイト列（`ArrayBuffer`）で保存する。**
+> WebKit は IndexedDB に `Blob` を入れるときディスク上のファイルへ退避する経路を通り、
+> その経路が使えない状況（Safari のプライベートブラウズ、E2E の一時プロファイル）では
+> `UnknownError: Error preparing Blob/File data to be stored in object store` で
+> **書き込みごと失敗する**。写真を1枚も預かれないので、キューが丸ごと機能しない。
+> バイト列なら構造化複製がそのまま通り、エンジンや保存モードを問わず入る。
+> MIME 型は `contentType` として独立に持ち、読み出し時に `Blob` を組み立て直す。
+> 公開 API（`getAttachmentBlob()`）の戻り値は `Blob` のままなので、利用側の変更は不要。
+>
+> 同じ理由で、**書き込みトランザクションの内側で IndexedDB 以外の `await` をしない**。
+> Safari はそこでトランザクションを確定させてしまうため、`blob.arrayBuffer()` は
+> トランザクションを開く前に済ませる（`toStoredBlob()`）。
+
 `navigator.storage.persist()` を初期化時に要求し、`estimate()` で残量を監視。
 enqueue 時に残量不足なら `QuotaExceededError` を投げて UI に出す（黙って落とさない）。
 成功ジョブは既定 7日後に自動 purge。
@@ -1085,6 +1099,10 @@ const { capabilities, probed, syncDescription } = useCapabilities();
 
 #### (3) iOS Safari のストレージ制約（**実装済み**）
 
+- **添付は Blob ではなくバイト列で保存する**（§2.3 の囲み参照）。
+  WebKit を E2E に入れて最初に見つかった実欠陥がこれで、
+  `UnknownError: Error preparing Blob/File data to be stored in object store` により
+  iOS ではキューが丸ごと機能していなかった。バイト列に変えて解消。
 - **`persist()` が拒否された場合**: 機能は止めない。ただし未送信を抱えている間は
   `StorageHealth.level` を `warn` にし、「保存が保証されていません。早めに送信してください」を出す。
   API ごと無い環境は「判らない」であって拒否ではないので警告しない（`persistenceSupported` で区別）。

@@ -1,6 +1,6 @@
 import { compressImage } from "../image/compress.js";
 import type { CompressedImage, CompressImageOptions } from "../image/types.js";
-import { deleteOrphanBlobs, getBlob } from "../db/blobs.repo.js";
+import { deleteOrphanBlobs, getBlob, toStoredBlob } from "../db/blobs.repo.js";
 import {
   findSucceededBefore,
   getCounts,
@@ -22,7 +22,12 @@ import {
   type RetentionLimits,
   type StorageHealth,
 } from "../db/quota.js";
-import { DEFAULT_JOB_TOKEN_TTL_MS, defaultDbName, type StoredJob } from "../db/schema.js";
+import {
+  DEFAULT_JOB_TOKEN_TTL_MS,
+  defaultDbName,
+  type StoredBlob,
+  type StoredJob,
+} from "../db/schema.js";
 import {
   clearSentinel,
   describeEviction,
@@ -200,10 +205,11 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
   // ---------------------------------------------------------------- enqueue
 
   async function prepareAttachments(
+    jobId: string,
     inputs: QueueAttachmentInput[],
-  ): Promise<{ attachments: QueueAttachment[]; blobs: { attachmentId: string; blob: Blob }[] }> {
+  ): Promise<{ attachments: QueueAttachment[]; records: StoredBlob[] }> {
     const attachments: QueueAttachment[] = [];
-    const blobs: { attachmentId: string; blob: Blob }[] = [];
+    const records: StoredBlob[] = [];
 
     for (const input of inputs) {
       const attachmentId = input.attachmentId ?? uuid();
@@ -232,10 +238,12 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
         ...(compression ? { compression } : {}),
         ...(input.meta ? { meta: input.meta } : {}),
       });
-      blobs.push({ attachmentId, blob });
+      // バイト列への変換はここで済ませる。書き込みトランザクションの内側で
+      // 待つと、Safari ではその時点でトランザクションが確定してしまう
+      records.push(await toStoredBlob(jobId, attachmentId, blob));
     }
 
-    return { attachments, blobs };
+    return { attachments, records };
   }
 
   async function enqueue<P>(input: QueueJobInput<P>): Promise<QueueJob<P>> {
@@ -249,7 +257,7 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
 
     // 圧縮は enqueue のここで済ませる。送信時にはもう触らない
     // （署名付きURLの期限内に重い処理を挟まないため）
-    const { attachments, blobs } = await prepareAttachments(input.attachments ?? []);
+    const { attachments, records } = await prepareAttachments(jobId, input.attachments ?? []);
     const totalBytes = attachments.reduce((sum, a) => sum + a.bytes, 0);
 
     // 容量の確認は書き込みの直前に。ここで断れば、撮った直後に利用者へ伝えられる
@@ -305,14 +313,8 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     const tx = db.transaction(["jobs", "blobs"], "readwrite");
     await tx.objectStore("jobs").put(job);
     const blobStore = tx.objectStore("blobs");
-    for (const { attachmentId, blob } of blobs) {
-      await blobStore.put({
-        id: `${jobId}:${attachmentId}`,
-        jobId,
-        attachmentId,
-        blob,
-        bytes: blob.size,
-      });
+    for (const record of records) {
+      await blobStore.put(record);
     }
     await tx.done;
 

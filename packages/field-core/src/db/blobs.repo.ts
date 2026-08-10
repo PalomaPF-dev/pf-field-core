@@ -8,20 +8,43 @@ import { blobKey, type StoredBlob } from "./schema.js";
  * サムネイルが要るときだけ、その1件を読む。
  */
 
+/**
+ * 保存用のレコードを組み立てる。
+ *
+ * **トランザクションを開く前に呼ぶこと。** `blob.arrayBuffer()` は IndexedDB の
+ * リクエストではないので、トランザクションの内側で待つと Safari では
+ * その時点でトランザクションが確定してしまい、続く put が InvalidStateError になる。
+ */
+export async function toStoredBlob(
+  jobId: string,
+  attachmentId: string,
+  blob: Blob,
+): Promise<StoredBlob> {
+  const data = await blob.arrayBuffer();
+  return {
+    id: blobKey(jobId, attachmentId),
+    jobId,
+    attachmentId,
+    data,
+    contentType: blob.type || "application/octet-stream",
+    bytes: data.byteLength,
+  };
+}
+
+/** 保存されたバイト列を Blob へ戻す。0.1.0 までの Blob 形式もそのまま読める */
+export function fromStoredBlob(record: StoredBlob): Blob {
+  if (record.data) return new Blob([record.data], { type: record.contentType });
+  // 旧形式。取り出せるうちに読んでおく（次の put で新形式へ入れ替わる）
+  return record.blob as Blob;
+}
+
 export async function putBlob(
   db: FieldDB,
   jobId: string,
   attachmentId: string,
   blob: Blob,
 ): Promise<void> {
-  const record: StoredBlob = {
-    id: blobKey(jobId, attachmentId),
-    jobId,
-    attachmentId,
-    blob,
-    bytes: blob.size,
-  };
-  await db.put("blobs", record);
+  await db.put("blobs", await toStoredBlob(jobId, attachmentId, blob));
 }
 
 export async function getBlob(
@@ -30,7 +53,7 @@ export async function getBlob(
   attachmentId: string,
 ): Promise<Blob | undefined> {
   const record = await db.get("blobs", blobKey(jobId, attachmentId));
-  return record?.blob;
+  return record ? fromStoredBlob(record) : undefined;
 }
 
 export async function deleteBlob(
