@@ -55,10 +55,13 @@ if (existsSync(reactPath)) {
 for (const name of ["index.js", "image.js", "storage.js", "react.js", "scanner.js", "sw.js"]) {
   const file = join(dist, name);
   if (!existsSync(file)) continue;
-  check(
-    !readFileSync(file, "utf8").includes("SERVICE_ROLE"),
-    `dist/${name} に SERVICE_ROLE への参照があります（サーバ専用コードが混ざっています）`,
-  );
+  const source = readFileSync(file, "utf8");
+  for (const secret of ["SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"]) {
+    check(
+      !source.includes(secret),
+      `dist/${name} に ${secret} への参照があります（サーバ専用コードが混ざっています）`,
+    );
+  }
 }
 
 if (failures.length > 0) {

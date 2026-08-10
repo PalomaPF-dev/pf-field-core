@@ -89,7 +89,7 @@ describe("公開エントリ", () => {
 // ---------------------------------------------------------------------------
 // サーバ専用コードがクライアント向けエントリに混ざらないことの検証。
 //
-// ./server は SUPABASE_SERVICE_ROLE_KEY を読む。ここが端末に配られるバンドルへ
+// ./server は SUPABASE_SECRET_KEY を読む。ここが端末に配られるバンドルへ
 // 紛れ込むと鍵が漏れるので、静的にモジュールグラフを辿って遮断を確かめる。
 // ---------------------------------------------------------------------------
 
@@ -167,10 +167,14 @@ describe("サーバ専用コードの遮断", () => {
     expect(leaked, `クライアント向けエントリからサーバ専用モジュールに到達できる`).toEqual([]);
   });
 
-  it("src/server/ 以外に SUPABASE_SERVICE_ROLE_KEY の参照が無い", () => {
+  it("src/server/ 以外にサーバ専用の鍵の参照が無い", () => {
+    const secrets = ["SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
     const offenders = listSourceFiles(srcRoot)
       .filter((f) => !f.startsWith(join(srcRoot, "server")))
-      .filter((f) => readFileSync(f, "utf8").includes("SERVICE_ROLE"))
+      .filter((f) => {
+        const source = readFileSync(f, "utf8");
+        return secrets.some((secret) => source.includes(secret));
+      })
       .map((f) => relative(packageRoot, f));
 
     expect(offenders).toEqual([]);

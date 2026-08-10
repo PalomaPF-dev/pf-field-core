@@ -22,7 +22,7 @@ pnpm add @palomapf-dev/pf-field-core
 | `./sw` | Service Worker ビルダー | Service Worker |
 | `./server` | Route Handler・`StorageProvider` | **サーバ専用** |
 
-`./server` は `SUPABASE_SERVICE_ROLE_KEY` を読む。
+`./server` は `SUPABASE_SECRET_KEY` を読む。
 クライアントコンポーネントから import してはいけない
 （ビルド時とテストで、他のエントリからここへ到達できないことを検査している）。
 

@@ -4,6 +4,10 @@
 オフライン・アップロード基盤ライブラリの設計案。**この文書に合意してから実装に入る。**
 
 > **改訂履歴**
+> - rev.6 — M2（IndexedDB + キュー）完了。環境変数を **`SUPABASE_SECRET_KEY` に統一**。
+>   pf-portal 調査で判明した **M3 の必須要件3点**を確定（§M3 の必須要件）—
+>   `redirect: "manual"`、`res.ok` だけで判定しない、**ジョブ単位の送信トークン**。
+>   これに伴い §5-9 (1) の「送信専用トークンへの降格」案は置き換えとなった。
 > - rev.5 — M1（画像圧縮）完了。§5-8 の3件を決定（§5-9）。実測にもとづき
 >   Worker へのオフロードを **M1b へ延期**（メインスレッドの詰まりが実測 0ms のため）。
 >   「圧縮したほうが太る」写真を元のまま送る判断を追加。
@@ -11,7 +15,7 @@
 >   既定の再試行回数を 8 → **10**（8回だと上限5分に到達せず `maxMs` が死ぬ）、
 >   App Shell の Cache First を取りやめ（`private, no-store` と衝突するため）。
 > - rev.3 — 判断ポイント7件と前提確認への回答を反映し、**方針確定**（§5）。
->   署名は `SUPABASE_SERVICE_ROLE_KEY` を用いたサーバ側発行に確定（§2.4.4 / §2.4.6）。
+>   署名は `SUPABASE_SECRET_KEY` を用いたサーバ側発行に確定（§2.4.4 / §2.4.6）。
 > - rev.2 — ストレージを S3 → **Supabase Storage** に変更。あわせてアップロード処理を
 >   `StorageAdapter` / `StorageProvider` の2つの継ぎ目の背後に置き、実装を差し替え可能にした（§2.4）。
 > - rev.1 — 初版。
@@ -601,7 +605,7 @@ export interface StorageProvider {
 
 export function supabaseStorageProvider(o: {
   bucket: string;               // 4アプリ共用 'field-uploads'
-  /** 既定は env の SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY から生成 */
+  /** 既定は env の SUPABASE_URL / SUPABASE_SECRET_KEY から生成 */
   client?: SupabaseClient | ((ctx: ServerContext) => Promise<SupabaseClient>);
   /** 既定 `${appId}/${jobType}/${yyyy}/${mm}/${jobId}/${attachmentId}.${ext}` */
   buildPath?(ctx: PathContext): string;
@@ -640,7 +644,7 @@ import { createSignUploadRouteHandler, supabaseStorageProvider } from '@palomapf
 import { getSessionWithRole } from '@/lib/session';   // 既存の next-auth セッション
 
 export const POST = createSignUploadRouteHandler({
-  // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY から自動でクライアントを作る
+  // SUPABASE_URL / SUPABASE_SECRET_KEY から自動でクライアントを作る
   provider: supabaseStorageProvider({ bucket: 'field-uploads' }),
   // ★ 認可の実体はここ。service_role は RLS を迂回するため、この関数が唯一の防壁になる
   authorize: async () => {
@@ -685,7 +689,7 @@ export function useSignedUrls(refs: StoredObjectRef[]): { urls: Map<string, stri
 |---|---|
 | バケット | `field-uploads` を4アプリ共用、パス第1階層を `appId` で分ける。RLS ポリシーを1本に保てる。アプリ別に分ける案は運用負荷が4倍になるので採らない（要合意） |
 | 公開設定 | **非公開**（`public: false`）。読み書きとも署名付きURL経由のみ |
-| 署名の発行者 | **`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` を使ったサーバー側発行**。理由は `docs/auth-findings.md` §4-1 — 認証は next-auth(JWT) + ポータルSSO であり、**リクエストに Supabase JWT が載らない**ため RLS はユーザーを識別できない |
+| 署名の発行者 | **`SUPABASE_URL` / `SUPABASE_SECRET_KEY` を使ったサーバー側発行**。理由は `docs/auth-findings.md` §4-1 — 認証は next-auth(JWT) + ポータルSSO であり、**リクエストに Supabase JWT が載らない**ため RLS はユーザーを識別できない |
 | 認可の実体 | Route Handler の `authorize()`（＝各アプリの `requireSession()` / `getSessionWithRole()`）。service_role は RLS を迂回するので、**ここが唯一の防壁**になる |
 | RLS の役割 | `anon` / `authenticated` には INSERT / SELECT とも**一切許可しない default deny**。第2層として置く（anon キーが漏れても直接は触れない）。将来 Supabase Auth に寄せたらユーザーJWT + RLS 判定へ切り替えられるよう、`StorageProvider.client` は関数も受け付ける形にしてある |
 | 署名URLの性質 | 署名付きURLは**使用時点では RLS を迂回する**。チェックが効くのは発行時だけなので、`authorize()` とサーバー側パス生成が防衛線のすべて |
@@ -717,8 +721,9 @@ update storage.buckets
  where id = 'field-uploads';
 ```
 
-> `SUPABASE_SERVICE_ROLE_KEY` の中身は Supabase の新形式 Secret key（`sb_secret_` 始まり）。
-> 変数名は設定済みの環境に合わせて据え置く（実装は `SUPABASE_SECRET_KEY` も別名として受け付ける）。
+> **正となる変数名は `SUPABASE_SECRET_KEY`。** 中身は Supabase の新形式 Secret key（`sb_secret_` 始まり）。
+> 実装は移行のため `SUPABASE_SERVICE_ROLE_KEY` も別名として受け付けるが、
+> ドキュメントと新規設定は `SUPABASE_SECRET_KEY` に統一する。
 > **サーバー環境変数としてのみ**扱う。
 > `NEXT_PUBLIC_` を付けない、クライアントコンポーネントから import しない、
 > ログに出さない。`./server` サブパス以外から参照しないことをテストで担保する。
@@ -910,7 +915,7 @@ const { reachable } = useNetworkStatus();
 |---|---|---|
 | 1 | `.npmrc` | `@palomapf-dev:registry=https://npm.pkg.github.com` + トークン参照 |
 | 2 | `package.json` | `@palomapf-dev/pf-field-core` / `@supabase/supabase-js` 追加、`"prebuild": "pf-field-sw build"` |
-| 3 | 環境変数（Vercel） | **`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`** — ともに**サーバ専用**。`NEXT_PUBLIC_` を付けない。<br>加えて GitHub Packages 読み取りトークン |
+| 3 | 環境変数（Vercel） | **`SUPABASE_URL` / `SUPABASE_SECRET_KEY`** — ともに**サーバ専用**。`NEXT_PUBLIC_` を付けない。<br>加えて GitHub Packages 読み取りトークン |
 | 4 | — | アプリ側に `lib/supabase.ts` は**不要**。`./server` が env から直接クライアントを作る。<br>端末側は Supabase を知らない（§2.4 の既定構成）|
 | 5 | `app/providers.tsx`（新規） | `"use client"` + `<FieldCoreProvider config={...}>` |
 | 6 | `app/layout.tsx` | Provider で包む / `manifest` リンク / SW 登録コンポーネント配置 |
@@ -945,7 +950,7 @@ const { reachable } = useNetworkStatus();
   パス第1階層を `appId` にしてアプリを分離する（§2.4.6）。
 - **RLS**: `storage.objects` の `field-uploads` に対して **anon / authenticated 向けのポリシーを1本も作らない**
   （＝ default deny）。発行は service_role が行う。既存の緩いポリシーが無いことを `pg_policy` で確認する。
-- **環境変数（Vercel、4アプリ共通）**: `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`。
+- **環境変数（Vercel、4アプリ共通）**: `SUPABASE_URL` / `SUPABASE_SECRET_KEY`。
   **どちらもサーバ専用**。`NEXT_PUBLIC_` を付けず、Preview/Production の両環境に設定する。
 - **HTTPS**: ✅ 確認済み。全アプリが `*.paloma-pf.com`（Vercel）で有効な証明書。
   Service Worker の secure context 要件を満たす。
@@ -979,7 +984,7 @@ const { reachable } = useNetworkStatus();
 | **M0** ✅ | 基盤整備（pnpm workspace / tsup / vitest / playwright / changesets / CI / GitHub Packages publish / playground） | `0.0.1` が publish でき、playground から import できる |
 | **M1** ✅ | 画像圧縮（EXIF / 向きの焼き込み / 品質の二分探索 / 実機計測ページ）| 下記「M1 の結果」参照。Worker オフロードのみ **M1b** へ延期 |
 | **M1b** | Worker オフロード（実測しだい）| 実機で `/bench` の「メインスレッドの詰まり」が実用に耐えない場合のみ着手 |
-| **M2** | 永続化 + キュー骨格（`db/`, `queue/`）| fake-indexeddb の単体テストが通る。状態遷移が網羅テスト済み |
+| **M2** ✅ | 永続化 + キュー骨格（`db/`, `queue/`, 滞留上限, 排他, 送信トークン）| 状態遷移は全36通りを表で検証。fake-indexeddb と実ブラウザの両方で確認済み |
 | **M3** | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 下記の M3 詳細を参照 |
 | **M4** | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
 | **M5** | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | アプリを閉じた状態から Background Sync で送信完了。圏外でアプリシェルが起動し、**点検入力を新規に開始できる** |
@@ -1015,6 +1020,71 @@ const { reachable } = useNetworkStatus();
 これは Zebra 実機と現場写真が要るので、`/bench` を実機で開いて採取してもらう。
 デスクトップの 234ms が実機で 6倍になっても 1.5 秒に収まる見込みだが、確認は要る。
 
+### M3 の必須要件（pf-portal 側の調査で判明・2026-08-10 確定）
+
+**この3点は M3 の実装で必ず満たすこと。** いずれも点検結果の消失に直結する。
+M2 の時点で型・ヘルパ・テストとして先に入れてある（メモではなくコードで縛るため）。
+
+#### (1) 送信の fetch は `redirect: "manual"` を必ず指定する
+
+セッションが切れた状態で API を叩くと、サーバはログイン画面へ 302 を返すことがある。
+既定の `redirect: "follow"` だとブラウザがそれを追いかけ、**ログイン画面の HTML が 200 で返る**。
+`res.ok` はそこで true になり、送信成功と誤認してジョブを消す。
+
+→ `safeFetch()` を使う。`redirect` は呼び出し側から上書きできない実装にしてある。
+   素の `fetch` を送信経路で使わないこと。
+
+#### (2) `res.ok` だけで成功判定しない
+
+判定は `classifyResponse()` に集約してある。順序に意味がある:
+
+| 条件 | 分類 | ジョブの行き先 |
+|---|---|---|
+| `type === "opaqueredirect"`（= ログイン画面へのリダイレクト）| auth | **`blocked(auth)`。消さない** |
+| `redirected === true` / 3xx が素通しで見えた | auth | 同上 |
+| 2xx | 成功 | `succeeded` |
+| 401 / 403 | auth | **`blocked(auth)`。消さない** |
+| 5xx / 408 / 429 | server | `pending`（バックオフして再試行）|
+| 400 / 413 / 422 | validation | `blocked` |
+
+**401 でジョブを消してはいけない。** 再ログイン後に
+`retryAll({ includeBlocked: true })` で救済できる状態で残す。
+
+#### (3) 認証は「ジョブ単位の送信トークン」
+
+Cookie は使わない。無操作ログアウト（共用端末15分）やセッション期限（12時間）で
+Cookie が消えても、預かった写真は送れなければならない。
+
+```
+ジョブ投入時（認証が生きている今この瞬間）
+  └ config.auth.issueJobToken({ jobId, type }) でトークンを受け取る
+  └ IndexedDB の tokens ストアに保管（jobs とは別。queue.list() には乗らない）
+送信時
+  └ Authorization: Bearer <jobToken>
+破棄
+  └ 送信成功時にそのジョブぶん / キューが空になったら全部 / 期限切れは起動時に掃除
+```
+
+- 有効期限は既定 **26時間**。next-auth のセッション（12時間）より長くしてあるのは、
+  「夕方に撮って翌朝に圏内へ戻る」を1本のトークンで賄うため。
+- トークンを発行できなければ **enqueue ごと失敗させる**。
+  「預かったのに送れない」状態を端末に残さない。
+- 期限切れのトークンは「無い」ものとして扱い、送信時は `blocked(auth)` にする。
+
+> これは §5-9 (1) の「ロック + 送信専用トークンへの降格」案を置き換える。
+> 投入時に発行するほうが単純で、無操作ログアウトの前後を区別せずに済む。
+> pf-ui 側の `useIdleLogout` 変更は、**画面のロック目的では引き続き有用**だが、
+> 送信可否の観点では不要になった。
+
+**サーバ側に必要なもの**（並行セッション側の作業）:
+
+| エンドポイント | 役割 |
+|---|---|
+| トークン発行 | 認証済みセッションから、その `jobId` 専用のトークンを発行（TTL 26時間）|
+| 署名URL発行 / レコード送信 | Cookie に加えて `Authorization: Bearer <jobToken>` を受理。<br>トークンに紐づく `jobId` 以外の操作は拒否する |
+
+---
+
 **M3 の詳細**（ストレージ変更で最も重くなったマイルストーン）
 
 | # | 作業 | 完了条件 |
@@ -1048,7 +1118,7 @@ M0 の時点で着手依頼を出しておく — ここが遅れると M3 が�
 | 1 | パッケージ分割 | **単一パッケージ + サブパス exports**（`@palomapf-dev/pf-field-core`）|
 | 2 | 端末側アダプタの既定 | **`httpSigned`**（サーバ経由・プロバイダ非依存）|
 | 3 | バケット構成 | **`field-uploads` を4アプリ共用**、パス第1階層を `appId` で分離 |
-| 4 | 署名の発行 | **`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` でサーバ側発行**。認可は `authorize()` |
+| 4 | 署名の発行 | **`SUPABASE_URL` + `SUPABASE_SECRET_KEY` でサーバ側発行**。認可は `authorize()` |
 | 5 | Service Worker のビルド | **自前の薄い esbuild CLI**（`pf-field-sw build`）|
 | 6 | 投入戦略 | **M4 で pf-setsubi にパイロット投入** → M8 で残り3本 |
 | 7 | サーバ／Supabase 側の変更主体 | **同一チームで実施**（既存API の冪等化・マイグレーション・バケット/RLS 設定を含む）|
@@ -1120,7 +1190,7 @@ M4 に**下書きの永続化を含める**。Zebra 端末は WebView をバッ�
 | 認証の有効期限 | ✅ 調査完了 | next-auth v4 JWT・**12時間**・`updateAge` 15分・**リフレッシュトークン無し**。<br>ポータルSSO は HMAC・TTL 60秒。無操作ログアウトは共用15分/個人60分。<br>詳細と影響は `docs/auth-findings.md` |
 | Zebra WebView バージョン | ⏳ 実機確認待ち | **暫定値で進行**（下記）|
 | オフライン滞留の許容量 | ⏳ 実機確認待ち | **暫定値で進行**（下記）|
-| Supabase の準備 | ✅ 完了 | バケット `field-uploads`（ap-northeast-1）、環境変数 `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` 設定済み。<br>RLS はポリシー未作成（= default deny）で、サーバは **Secret key（`sb_secret_` 形式）**でバイパスする方針 |
+| Supabase の準備 | ✅ 完了 | バケット `field-uploads`（ap-northeast-1）、環境変数 `SUPABASE_URL` / `SUPABASE_SECRET_KEY` を Vercel に設定済み。<br>RLS はポリシー未作成（= default deny）で、サーバは **Secret key（`sb_secret_` 形式）**でバイパスする方針 |
 | サーバ側の変更 | 🔄 並行着手中 | `client_job_id` の追加と API の冪等化は別セッションで進行 |
 | DB 移行（Neon → Supabase）の時期 | ❓ 未定 | ストレージ先行で一時的に2ベンダー並存になる点の可否を要確認 |
 

@@ -34,18 +34,35 @@ export interface FieldCoreConfig {
   };
 
   /**
-   * 認証。
+   * 認証 —「ジョブ単位の送信トークン」方式。
    *
-   * 現構成は next-auth の Cookie 認証なので、同一オリジンへの fetch には
-   * 自動で Cookie が載る。getHeaders は将来 Bearer 方式へ移るときの余地として残してある。
+   * Cookie は使わない。無操作ログアウト（共用端末15分）や
+   * セッション期限（12時間）で Cookie が消えても、預かった写真は送れなければならない。
    *
-   * onUnauthorized は必須級: セッションは12時間・リフレッシュトークン無しのため、
-   * 長時間の圏外滞留から復帰すると 401 になる。ここで再ログインへ導く。
+   * 流れ:
+   *   1. ジョブ投入時（＝認証が生きている今この瞬間）に issueJobToken でトークンを受け取る
+   *   2. IndexedDB の専用ストアに保管する（jobs とは別。list() には乗らない）
+   *   3. 送信時に `Authorization: Bearer <jobToken>` で送る
+   *   4. 有効期限は既定26時間。キューが空になれば破棄する
    */
   auth?: {
+    /**
+     * そのジョブ専用の送信トークンを発行する。
+     *
+     * 認証が生きているうちに1回だけ呼ばれる。ここで失敗すると enqueue も失敗するので、
+     * 「撮ったのに預かれない」を避けたい場合はサーバ側を落ちにくく作ること。
+     */
+    issueJobToken?: (job: { jobId: string; type: string }) => Promise<JobTokenIssue>;
+
+    /**
+     * 401 / 403 / ログイン画面へのリダイレクトを受けたときに呼ばれる。
+     * true を返せば1回だけ再試行する（トークンを取り直せた場合など）。
+     * false ならジョブは `blocked(auth)` として残る。**消さない。**
+     */
+    onUnauthorized?: (job: { jobId: string; type: string }) => Promise<boolean>;
+
+    /** 全リクエスト共通で足すヘッダ。将来 Bearer 以外へ移る場合の余地 */
     getHeaders?: () => Promise<Record<string, string>>;
-    /** 401/403 のとき呼ばれる。true を返せば1回だけ再試行する */
-    onUnauthorized?: () => Promise<boolean>;
   };
 
   queue?: {
@@ -80,6 +97,12 @@ export interface FieldCoreConfig {
 
   /** 監視・計測フック */
   onEvent?: (event: FieldCoreEvent) => void;
+}
+
+export interface JobTokenIssue {
+  token: string;
+  /** epoch ms。省略時は発行から26時間 */
+  expiresAt?: number;
 }
 
 export interface FieldCoreEvent {

@@ -3,7 +3,7 @@ import type { ResolvedUrl, StoredObjectRef, UploadTarget } from "../storage/type
 /**
  * サーバ側の継ぎ目。ストレージを差し替えるときに入れ替わるのはこの実装だけ。
  *
- * ※ 署名の発行は SUPABASE_SERVICE_ROLE_KEY で行うため RLS を迂回する。
+ * ※ 署名の発行は SUPABASE_SECRET_KEY で行うため RLS を迂回する。
  *    したがって認可の実体は Route Handler の authorize() であり、
  *    保存パスは必ずサーバが組み立てる（クライアント指定のパスは使わない）。
  *    詳細は docs/DESIGN.md §2.4.6 と docs/auth-findings.md §4-1。

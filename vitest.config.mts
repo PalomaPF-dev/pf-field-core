@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ["packages/*/test/**/*.test.ts"],
     environment: "node",
+    setupFiles: ["./test/setup/indexeddb.ts"],
     coverage: {
       provider: "v8",
       include: ["packages/*/src/**/*.ts"],

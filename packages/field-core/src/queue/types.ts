@@ -1,4 +1,5 @@
 import type { CompressedImage, CompressImageOptions } from "../image/types.js";
+import type { StorageHealth } from "../db/quota.js";
 import type { StoredObjectRef } from "../storage/types.js";
 
 /**
@@ -156,6 +157,12 @@ export interface QueueSnapshot {
   isSyncing: boolean;
   lastSyncAt: number | null;
   lastError: QueueError | null;
+  /**
+   * 端末ストレージと滞留量の状態。
+   * 「入らなくなってから気づく」と撮った写真がその場で失われるので、
+   * バッジやヘッダで**入らなくなる前に**warn を出せるようにここへ載せている。
+   */
+  storage: StorageHealth | null;
 }
 
 export interface OfflineQueue {
@@ -177,7 +184,13 @@ export interface OfflineQueue {
   /** 未送信一覧のサムネイル表示用（ローカルに残っている Blob を返す） */
   getAttachmentBlob(jobId: string, attachmentId: string): Promise<Blob | undefined>;
 
+  /** 端末ストレージと滞留量の状態。容量警告の表示に使う */
+  health(): Promise<StorageHealth>;
+
   start(): void;
   stop(): void;
   subscribe(listener: (snapshot: QueueSnapshot) => void): () => void;
+
+  /** DB 接続とタイマーを閉じる */
+  destroy(): Promise<void>;
 }

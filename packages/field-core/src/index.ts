@@ -21,6 +21,7 @@ export type {
   FieldCore,
   FieldCoreConfig,
   FieldCoreEvent,
+  JobTokenIssue,
   StorageInfo,
 } from "./config.js";
 export { DEFAULT_ENDPOINTS, DEFAULT_QUEUE_LIMITS, DEFAULT_STORAGE_QUOTA } from "./config.js";
@@ -53,6 +54,59 @@ export {
   DEFAULT_MAX_ATTEMPTS,
   nextAttemptAt,
 } from "./queue/backoff.js";
+
+// キュー本体
+export { createOfflineQueue } from "./queue/queue.js";
+export type { CompressFn, OfflineQueueOptions } from "./queue/queue.js";
+export type { JobProcessor, ProcessContext, ProcessOutcome } from "./queue/processor.js";
+export { createTriggers } from "./queue/triggers.js";
+export type { TriggerReason, Triggers } from "./queue/triggers.js";
+
+// 状態遷移（送信ランナーを自作する場合に使う）
+export {
+  canTransition,
+  InvalidTransitionError,
+  isTerminal,
+  markActive,
+  markAttachmentUploaded,
+  markCanceled,
+  markFailed,
+  markForRetry,
+  markSucceeded,
+  pendingAttachments,
+  releaseToPending,
+} from "./queue/state.js";
+export type { FailureOutcome } from "./queue/state.js";
+
+/**
+ * 送信で使う fetch。
+ * ログイン画面へのリダイレクトを成功と誤認しないよう、redirect: "manual" を強制する。
+ * 送信経路では素の fetch を使わないこと。
+ */
+export { classifyResponse, responseError, SAFE_FETCH_INIT, safeFetch } from "./net/fetch-safe.js";
+export type { ClassifiableResponse, SafeFetchOptions } from "./net/fetch-safe.js";
+
+// 排他
+export { acquireRunnerLock, readLease } from "./queue/lock.js";
+export type { LeaseRecord, RunnerLock } from "./queue/lock.js";
+
+// 端末ストレージ
+export {
+  DEFAULT_QUOTA,
+  DEFAULT_RETENTION,
+  ensurePersistence,
+  estimateStorage,
+} from "./db/quota.js";
+export type {
+  QuotaLimits,
+  RetentionLimits,
+  StorageEstimate,
+  StorageHealth,
+} from "./db/quota.js";
+export type { UnsentSummary } from "./db/jobs.repo.js";
+export { openFieldDB } from "./db/open.js";
+export type { FieldDB } from "./db/open.js";
+export { defaultDbName } from "./db/schema.js";
 
 // エラー分類
 export type { Classification } from "./queue/errors.js";

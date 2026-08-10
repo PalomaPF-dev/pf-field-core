@@ -49,9 +49,13 @@ pf-field-core が読むのは次の2つだけ。**どちらもサーバ専用**�
 | 変数 | 用途 |
 |---|---|
 | `SUPABASE_URL` | Supabase プロジェクトの URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | 署名付きURLの発行（アップロード・閲覧の両方） |
+| `SUPABASE_SECRET_KEY` | 署名付きURLの発行（アップロード・閲覧の両方）。Supabase の Secret key（`sb_secret_` 始まり）|
 
-> `SUPABASE_SERVICE_ROLE_KEY` は RLS を迂回する。
+**変数名は `SUPABASE_SECRET_KEY` を正とする。**
+実装は移行のため `SUPABASE_SERVICE_ROLE_KEY` も別名として受け付けるが、
+新しく設定するときは `SUPABASE_SECRET_KEY` を使うこと。
+
+> `SUPABASE_SECRET_KEY` は RLS を迂回する。
 > **認可の実体は Route Handler の `authorize()`**（＝アプリ既存の `requireSession()`）であり、
 > 保存パスは必ずサーバが組み立てる。詳細は
 > [`DESIGN.md` §2.4.6](DESIGN.md) と [`auth-findings.md` §4-1](auth-findings.md)。

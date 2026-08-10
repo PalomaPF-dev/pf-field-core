@@ -11,7 +11,7 @@
 1. **認証は Supabase Auth ではない。** ポータル発行の HMAC 署名トークンによる SSO + 各アプリの
    **next-auth v4（JWT strategy / Cookie）**。リクエストに Supabase の JWT は載らない。
    → 署名付きURLの発行を「ユーザーJWTを載せた Supabase クライアント → RLS で判定」で行う構成は**現状成立しない**。
-   `SUPABASE_SERVICE_ROLE_KEY` でサーバー側発行し、**認可は Route Handler の `requireSession()` が担う**構成が唯一整合する
+   `SUPABASE_SECRET_KEY` でサーバー側発行し、**認可は Route Handler の `requireSession()` が担う**構成が唯一整合する
    （＝ご指示の環境変数指定と一致）。
 2. **セッション上限は12時間。リフレッシュトークンは存在しない。**
    12時間を超えて圏外にいた端末は復帰時に 401 → `blocked(auth)` になり、**自動回復できない**。
@@ -85,7 +85,7 @@
 リクエストに Supabase JWT が載らない以上、`storage.objects` の RLS はユーザーを識別できない。
 したがって:
 
-- `supabaseStorageProvider` は `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` でクライアントを作る。
+- `supabaseStorageProvider` は `SUPABASE_URL` / `SUPABASE_SECRET_KEY` でクライアントを作る。
 - **認可の実体は Route Handler の `authorize()`**（= 各アプリの `requireSession()` / `getSessionWithRole()`）。
 - 保存パスはサーバーが `appId/jobType/yyyy/mm/jobId/attachmentId.ext` で組み立て、
   **クライアント指定のパスは一切使わない**。これが他社・他ユーザー領域への書き込みを防ぐ唯一の防壁になる。
