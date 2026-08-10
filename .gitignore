@@ -1,0 +1,23 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Next.js (playground)
+.next/
+out/
+next-env.d.ts
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# ローカル環境変数（SUPABASE_SERVICE_ROLE_KEY 等を絶対にコミットしない）
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log

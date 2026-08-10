@@ -1,0 +1,22 @@
+{
+  "name": "@palomapf-dev/pf-field-playground",
+  "version": "0.0.0",
+  "private": true,
+  "description": "pf-field-core の検証用 Next.js アプリ（オフライン再現・実機診断・E2E の対象）",
+  "scripts": {
+    "dev": "next dev -p 5190",
+    "build": "next build",
+    "start": "next start -p 5190 -H 127.0.0.1"
+  },
+  "dependencies": {
+    "@palomapf-dev/pf-field-core": "workspace:*",
+    "next": "16.2.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "//": "ルートは各パッケージの tsconfig を束ねるだけ。型検査は pnpm typecheck（各パッケージ）で行う。",
+  "files": [],
+  "include": []
+}

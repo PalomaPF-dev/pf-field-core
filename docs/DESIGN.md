@@ -4,6 +4,9 @@
 オフライン・アップロード基盤ライブラリの設計案。**この文書に合意してから実装に入る。**
 
 > **改訂履歴**
+> - rev.4 — M0 完了。実装で判明した2点を反映:
+>   既定の再試行回数を 8 → **10**（8回だと上限5分に到達せず `maxMs` が死ぬ）、
+>   App Shell の Cache First を取りやめ（`private, no-store` と衝突するため）。
 > - rev.3 — 判断ポイント7件と前提確認への回答を反映し、**方針確定**（§5）。
 >   署名は `SUPABASE_SERVICE_ROLE_KEY` を用いたサーバ側発行に確定（§2.4.4 / §2.4.6）。
 > - rev.2 — ストレージを S3 → **Supabase Storage** に変更。あわせてアップロード処理を
@@ -218,7 +221,7 @@ export interface FieldCoreConfig {
   };
 
   queue?: {
-    maxAttempts?: number;          // 既定 8
+    maxAttempts?: number;          // 既定 10（上限5分に到達してから打ち切る回数）
     backoff?: BackoffOptions;      // 既定 { baseMs: 2000, factor: 2, maxMs: 300_000, jitter: 'full' }
     concurrency?: number;          // 同時実行ジョブ数。既定 1
     attachmentConcurrency?: number;// 1ジョブ内の画像同時アップロード数。既定 2（弱電界時は自動で 1）
@@ -413,8 +416,16 @@ pending
 ```
 
 **バックオフ**: `delay = random(0, min(maxMs, baseMs * factor^(attempts-1)))`（full jitter）。
-既定で 2s → 4s → 8s → … → 上限 5分、8回で打ち切り。
+既定で 2s → 4s → 8s → … → 上限 5分、**10回**で打ち切り（合計およそ18分半）。
 端末が何十台も同時に復帰したときサーバを殴らないよう jitter は必須。
+
+回数を 10 にしているのは、**上限まで伸びきってから諦めさせる**ため。
+2秒から倍々だと 5分に届くのは9回目なので、8回で切ると `maxMs` に一度も到達せず設定が死ぬ。
+
+**圏外は試行回数を消費しない。** 送信ランナーは到達性を先に確かめ、届かないときは
+ジョブに触れず `pending` のまま戻る。したがってこの18分半は
+「サーバには届くが失敗し続けている」時間であり、建屋の奥に長時間いたことで
+ジョブが `failed` に落ちることはない。
 
 **排他制御**: `navigator.locks.request('pf-field-runner', { ifAvailable: true })`。
 複数タブ + Service Worker が同時に走っても 1 つだけが動く。
@@ -960,7 +971,7 @@ const { reachable } = useNetworkStatus();
 
 | M | 内容 | 完了条件 |
 |---|---|---|
-| **M0** | 基盤整備（pnpm workspace / tsup / vitest / playwright / changesets / CI / GitHub Packages publish / playground） | `0.0.1` が publish でき、playground から import できる |
+| **M0** ✅ | 基盤整備（pnpm workspace / tsup / vitest / playwright / changesets / CI / GitHub Packages publish / playground） | `0.0.1` が publish でき、playground から import できる |
 | **M1** | 画像圧縮 | 実機の代表写真20枚で 200〜400KB、Orientation 全パターン正、1枚 1.5秒以内 |
 | **M2** | 永続化 + キュー骨格（`db/`, `queue/`）| fake-indexeddb の単体テストが通る。状態遷移が網羅テスト済み |
 | **M3** | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 下記の M3 詳細を参照 |
