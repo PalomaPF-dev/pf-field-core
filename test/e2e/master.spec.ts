@@ -46,8 +46,13 @@ test("★ 先読みしたものは圏外でも表示でき、していないも�
     const el = img as HTMLImageElement;
     return { naturalWidth: el.naturalWidth, complete: el.complete, src: el.src.slice(0, 12) };
   });
-  const bytes = await page.getByTestId("bytes-sample").textContent();
-  expect({ ...decoded, bytes }).toMatchObject({ src: "blob:http://" });
+  const bytes = Number(await page.getByTestId("bytes-sample").textContent());
+  const type = (await page.getByTestId("type-sample").textContent())?.trim();
+
+  // 保存の中身 → デコード、の順に切り分ける
+  expect({ bytes, type, src: decoded.src }).toMatchObject({ src: "blob:http://" });
+  expect(bytes).toBeGreaterThan(0);
+  expect(type).toBe("image/png");
   expect(decoded.naturalWidth).toBeGreaterThan(0);
 
   await expect(page.getByTestId("img-sample")).toBeVisible();

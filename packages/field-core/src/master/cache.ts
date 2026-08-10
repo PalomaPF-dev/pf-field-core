@@ -279,7 +279,12 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
       const asset = await db.get("assets", refKey(ref));
       if (asset) {
         const blob = new Blob([asset.data], { type: asset.contentType });
-        return { state: "cached", url: URL.createObjectURL(blob), bytes: asset.bytes };
+        return {
+          state: "cached",
+          url: URL.createObjectURL(blob),
+          bytes: asset.bytes,
+          contentType: asset.contentType,
+        };
       }
 
       /*

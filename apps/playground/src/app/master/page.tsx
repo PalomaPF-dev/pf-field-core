@@ -42,6 +42,9 @@ function Media({ objectRef, label }: { objectRef: StoredObjectRef; label: string
       </span>{" "}
       <span className="lead" data-testid={`bytes-${label}`}>
         {availability.state === "cached" ? availability.bytes : "-"}
+      </span>{" "}
+      <span className="lead" data-testid={`type-${label}`}>
+        {availability.state === "cached" ? (availability.contentType ?? "?") : "-"}
       </span>
       <div>
         {url ? (

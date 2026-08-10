@@ -32,7 +32,7 @@ export interface MasterCollection<T = unknown> extends MasterCollectionInput<T> 
  */
 export type MediaAvailability =
   /** 端末にある。圏外でも表示できる */
-  | { state: "cached"; url: string; bytes: number }
+  | { state: "cached"; url: string; bytes: number; contentType: string }
   /** 端末には無いが、いまは取りに行ける */
   | { state: "online"; url: string }
   /** 端末に無く、いまは取りに行けない → 「オンライン時に表示されます」 */
