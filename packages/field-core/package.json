@@ -80,6 +80,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "esbuild": "^0.28.2",
     "idb": "^8.0.3"
   }
 }

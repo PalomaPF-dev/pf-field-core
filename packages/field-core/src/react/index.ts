@@ -31,6 +31,10 @@ export type {
 export { useSignedUrl, useSignedUrls } from "./use-signed-url.js";
 export type { UseSignedUrlResult, UseSignedUrlsResult } from "./use-signed-url.js";
 
+/** Service Worker の登録と更新。更新は勝手に適用しない */
+export { useServiceWorkerUpdate } from "./use-service-worker.js";
+export type { UseServiceWorkerOptions, UseServiceWorkerResult } from "./use-service-worker.js";
+
 /** 下書き。圏外で入力を続けるための土台 */
 export { useDraft } from "./use-draft.js";
 export type { UseDraftOptions, UseDraftResult } from "./use-draft.js";

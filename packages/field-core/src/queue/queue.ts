@@ -102,6 +102,14 @@ export interface OfflineQueueOptions {
   jobTokenTtlMs?: number;
 
   /**
+   * 送信トークンが必須か。既定は `issueJobToken` の有無。
+   *
+   * Service Worker では発行できない（セッションが無い）が、
+   * 投入時に預けたトークンを使って送る。そこで発行の可否と必須かどうかを分けている。
+   */
+  requireJobToken?: boolean;
+
+  /**
    * 全リクエスト共通で足すヘッダ。
    * ジョブ単位の送信トークン（Authorization: Bearer）はキューが自分で足すので、
    * ここに書くのはそれ以外（テナント識別子など）。
@@ -454,12 +462,21 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
       signal,
       authHeaders: async () => {
         const base = (await options.authHeaders?.()) ?? {};
-        // トークン方式を使っていない構成（Cookie のみ等）では tokenMissing を立てない。
-        // 「使うと決めたのに無い」ときだけ、送る前に止める
-        if (!options.issueJobToken) return { headers: base, tokenMissing: false };
 
+        /*
+         * トークンは**あれば必ず付ける**。発行できるかどうかとは別の話。
+         *
+         * Service Worker から送るときは issueJobToken を渡さない
+         * （セッションが無いので新規発行できない）。ここで発行の可否を
+         * 付与の条件にすると、Background Sync 経由の送信だけ
+         * Authorization が落ちて 401 になる。
+         */
         const token = await getJobToken(db, job.jobId);
-        if (!token) return { headers: base, tokenMissing: true };
+
+        // 「トークンを使う構成なのに無い」ときだけ、送る前に止める。
+        // Cookie のみの構成では立てない
+        const required = options.requireJobToken ?? Boolean(options.issueJobToken);
+        if (!token) return { headers: base, tokenMissing: required };
 
         return {
           headers: { ...base, Authorization: `Bearer ${token.token}` },
