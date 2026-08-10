@@ -38,6 +38,16 @@ test("★ 先読みしたものは圏外でも表示でき、していないも�
   await expect(page.getByTestId("state-sample")).toHaveText("cached", { timeout: 30_000 });
   await expect(page.getByTestId("img-sample")).toBeVisible();
 
+  /*
+   * 「要素がある」だけでは足りない。**実際にデコードできたか**を見る。
+   * 保存したバイト列が壊れていても、img 要素そのものは存在してしまう。
+   * WebKit は内容と拡張子が食い違うと復号を拒むので、ここで初めて分かる。
+   */
+  const decoded = await page
+    .getByTestId("img-sample")
+    .evaluate((img) => (img as HTMLImageElement).naturalWidth);
+  expect(decoded).toBeGreaterThan(0);
+
   // 先読みしていない → 「オンライン時に表示されます」
   // 「読み込み失敗」でも「画像がありません」でもない
   await expect(page.getByTestId("state-missing")).toHaveText("unavailable", { timeout: 30_000 });

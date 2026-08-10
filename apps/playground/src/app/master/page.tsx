@@ -23,12 +23,12 @@ const SAMPLE: StoredObjectRef = {
   provider: "playground",
   bucket: "field-uploads",
   // playground では public 配下の実ファイルを指す（本番は署名付きURLで解決される）
-  path: "/master/normal-sample.jpg",
+  path: "/master/normal-sample.png",
 };
 const NOT_PREFETCHED: StoredObjectRef = {
   provider: "playground",
   bucket: "field-uploads",
-  path: "/master/never-fetched.jpg",
+  path: "/master/never-fetched.png",
 };
 
 function Media({ objectRef, label }: { objectRef: StoredObjectRef; label: string }) {
