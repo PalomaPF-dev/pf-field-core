@@ -45,8 +45,15 @@ jobs:
       - name: 検証（公開前に必ず通す）
         run: pnpm verify
 
-      # 未リリースの changeset があれば「Version Packages」PR を作る。
+      # 未リリースの changeset があれば「バージョン更新」PR を作る。
       # その PR が main にマージされたときに publish が走る。
+      #
+      # ⚠ リポジトリ設定が必要:
+      #   Settings → Actions → General → Workflow permissions →
+      #   「Allow GitHub Actions to create and approve pull requests」を有効にすること。
+      #   無効のままだと、ブランチ `changeset-release/main` の push までは成功するが
+      #   PR 作成で `GitHub Actions is not permitted to create or approve pull requests`
+      #   となって失敗する。その場合は、そのブランチから手で PR を作ってマージすれば publish まで進む。
       - name: バージョン更新 PR / 公開
         uses: changesets/action@v1
         with:
