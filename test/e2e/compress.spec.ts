@@ -69,17 +69,28 @@ test.describe("圧縮（実ブラウザ）", () => {
 
     const rows = page.locator("tbody tr").filter({ has: page.locator("img") });
 
-    // 800x600 は長辺も収まりサイズも小さいので passthrough になるはず
-    await expect(rows.nth(5)).toContainText("passthrough");
+    /*
+     * 「再エンコードしていない」ことを、経路名ではなく**結果**で見る。
+     * 経路名（passthrough / offscreen-main）はエンジンで変わりうるが、
+     * 「元とサイズが1バイトも変わらない」なら触っていないと言い切れる。
+     */
+    async function assertUntouched(index: number, expectedSize: string) {
+      const cells = rows.nth(index).locator("td");
+      const before = (await cells.nth(2).innerText()).trim();
+      const after = (await cells.nth(3).innerText()).trim();
+      expect(after).toBe(before);
+      await expect(rows.nth(index)).toContainText(expectedSize);
+    }
+
+    // 800x600 は長辺も収まりサイズも小さいので触らない
+    await assertUntouched(5, "800×600");
 
     /*
      * 1600x1200（195KB）は長辺だけがわずかに超過している。
      * 1440px へ縮めて再エンコードすると 311KB に「太る」ため、元のまま送る。
      * 実測で見つかった劣化なので、実ブラウザのエンコーダで見張る
      */
-    const grown = rows.nth(4);
-    await expect(grown).toContainText("passthrough");
-    await expect(grown).toContainText("1600×1200");
+    await assertUntouched(4, "1600×1200");
   });
 
   test("圧縮後のほうが大きくなる写真が1枚も無い", async ({ page }) => {

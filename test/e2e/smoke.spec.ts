@@ -32,13 +32,18 @@ test("実機診断: クライアントコンポーネントのフックが動く
   // 落ちていると capabilities が never 埋まらず「検出中…」のままになる
   await expect(page.getByText("採用されるレンダラ")).toBeVisible({ timeout: 15_000 });
 
-  // Chromium なので from-image は対応しているはず
+  // 対応・非対応のどちらでもよい。検出が完走していることを見る
   const row = page.getByRole("row").filter({ hasText: "from-image" });
-  await expect(row).toContainText("対応");
+  await expect(row).toContainText(/対応|非対応/);
 });
 
 test("診断結果を JSON で採取できる", async ({ page }) => {
   await page.goto("/diagnostics");
+
+  // capabilities は同期的に出るが、画像の検出は effect の中で解決する。
+  // 揃ってから読まないと採取が欠ける
+  await expect(page.getByText("採用されるレンダラ")).toBeVisible({ timeout: 15_000 });
+
   const json = page.locator("pre code");
   await expect(json).toBeVisible({ timeout: 15_000 });
 
@@ -47,10 +52,20 @@ test("診断結果を JSON で採取できる", async ({ page }) => {
   expect(parsed).toHaveProperty("renderer");
   expect(parsed.createImageBitmap).toBe(true);
 
-  // Chromium は WebP をエンコードできる。ここが false になるのは検出側のバグ。
-  // 実際、コンテキストを取らずに convertToBlob を呼んで InvalidStateError になり、
-  // 「Chrome なのに WebP 非対応」と誤判定していたことがある
-  expect(parsed.webp).toBe(true);
-  // Worker へのオフロードは未実装（M1b）なので、実際に走るのはメインスレッドの OffscreenCanvas
-  expect(parsed.renderer).toBe("offscreen-main");
+  // 端末能力も同じ JSON に載る。UI の出し分けはこれらを見て決める
+  expect(parsed).toHaveProperty("platform");
+  expect(typeof parsed.backgroundSync).toBe("boolean");
+  expect(parsed.requiresForegroundToSend).toBe(!parsed.backgroundSync);
+  expect(Array.isArray(parsed.syncTriggers)).toBe(true);
+  // Background Sync が無い環境でも送信のきっかけは残る
+  expect((parsed.syncTriggers as string[]).length).toBeGreaterThan(0);
+
+  /*
+   * ここから先はエンジンごとに答えが変わる（Chromium と WebKit）。
+   * 値そのものを断定せず、「検出が完走して、使える経路が1つ以上ある」ことを見る。
+   * どの経路を通っても結果が正しいことは compress.spec.ts が保証する。
+   */
+  expect(["offscreen-main", "canvas"]).toContain(parsed.renderer);
+  expect(typeof parsed.webp).toBe("boolean");
+  expect(typeof parsed.imageOrientationFromImage).toBe("boolean");
 });

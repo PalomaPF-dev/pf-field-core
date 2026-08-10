@@ -5,7 +5,9 @@ export type TriggerReason =
   | "focus"
   | "interval"
   | "manual"
-  | "sync";
+  | "sync"
+  /** bfcache から復帰した（iOS でアプリ間を行き来すると起きる） */
+  | "restore";
 
 export interface TriggerOptions {
   onTrigger: (reason: TriggerReason) => void;
@@ -40,11 +42,12 @@ export function createTriggers(options: TriggerOptions): Triggers {
   function on(
     target: EventTarget | undefined,
     event: string,
-    handler: () => void,
+    handler: (event?: Event) => void,
   ): void {
     if (!target || typeof target.addEventListener !== "function") return;
-    target.addEventListener(event, handler);
-    cleanups.push(() => target.removeEventListener(event, handler));
+    const listener = (e: Event) => handler(e);
+    target.addEventListener(event, listener);
+    cleanups.push(() => target.removeEventListener(event, listener));
   }
 
   return {
@@ -63,6 +66,16 @@ export function createTriggers(options: TriggerOptions): Triggers {
       on(win, "focus", () => options.onTrigger("focus"));
       on(doc, "visibilitychange", () => {
         if (doc?.visibilityState === "visible") options.onTrigger("visible");
+      });
+      /**
+       * bfcache からの復帰。
+       *
+       * iOS で他アプリへ切り替えて戻ってくると、ページが bfcache から復元され、
+       * visibilitychange が期待どおりに来ないことがある。
+       * Background Sync が無い iOS では、ここが数少ない送信の機会になるので必ず拾う。
+       */
+      on(win, "pageshow", (event) => {
+        if ((event as PageTransitionEvent | undefined)?.persisted) options.onTrigger("restore");
       });
 
       if (pollIntervalMs > 0) {
