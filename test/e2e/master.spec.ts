@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 /**
  * マスタのローカルキャッシュ（M6）。
@@ -11,6 +12,36 @@ import { expect, test } from "@playwright/test";
  *   playground では /sw でしか SW を登録していないので、ここでは扱わない。
  *   確かめるのは「画面を開いたまま電波が切れたとき」の挙動。
  */
+
+/** 1x1 の PNG。中身が正しいことは自明にしておきたいので、実ファイルではなく直書きする */
+const TINY_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/**
+ * 対照実験。IndexedDB とは無関係に、その場で作った blob: と data: を読ませてみる。
+ *
+ * 圏外エミュレーションが blob: の読み込みごと塞いでいる可能性があり、
+ * それだと「保存が壊れている」のか「テスト環境の都合」なのか区別がつかない。
+ * 判定には使わず、失敗したときの手掛かりとしてだけ使う。
+ */
+async function decodeProbe(page: Page) {
+  return page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    const load = (src: string) =>
+      new Promise<number>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(img.naturalWidth);
+        img.onerror = () => resolve(0);
+        img.src = src;
+      });
+    try {
+      return { blob: await load(blobUrl), data: await load(`data:image/png;base64,${base64}`) };
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  }, TINY_PNG_BASE64);
+}
 
 test("一覧系マスタが端末に入る", async ({ page }) => {
   await page.goto("/master");
@@ -49,11 +80,16 @@ test("★ 先読みしたものは圏外でも表示でき、していないも�
   const bytes = Number(await page.getByTestId("bytes-sample").textContent());
   const type = (await page.getByTestId("type-sample").textContent())?.trim();
 
+  const probe = await decodeProbe(page);
+
   // 保存の中身 → デコード、の順に切り分ける
-  expect({ bytes, type, src: decoded.src }).toMatchObject({ src: "blob:http://" });
+  expect({ bytes, type, src: decoded.src, probe }).toMatchObject({ src: "blob:http://" });
   expect(bytes).toBeGreaterThan(0);
   expect(type).toBe("image/png");
-  expect(decoded.naturalWidth).toBeGreaterThan(0);
+  expect(
+    decoded.naturalWidth,
+    `対照実験（圏外で作り直した画像）: blob=${probe.blob} data=${probe.data}`,
+  ).toBeGreaterThan(0);
 
   await expect(page.getByTestId("img-sample")).toBeVisible();
 
