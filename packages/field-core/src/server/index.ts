@@ -3,10 +3,8 @@
  *
  * **このエントリはサーバ専用。** `SUPABASE_SECRET_KEY` を読むため、
  * クライアントコンポーネントから import してはいけない
- * （test/no-client-leak.test.ts が、クライアント向けエントリから
- *  このモジュールへ辿れないことを検証する）。
- *
- * M0 では型の契約のみ。supabaseStorageProvider と Route Handler は M3。
+ * （test/packaging.test.ts が、クライアント向けエントリから
+ *  このモジュールへ辿れないこと、および鍵の参照が server/ の外に無いことを検証する）。
  */
 
 export type {

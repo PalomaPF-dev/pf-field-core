@@ -4,6 +4,20 @@
 対象: `PalomaPF-dev/pf-portal`（HEAD）、`PalomaPF-dev/pf-setsubi`（HEAD）
 目的: pf-field-core のオフラインキューが「数時間の滞留後に送信できるか」を判断するため。
 
+> **この文書は調査時点のスナップショット。**
+> 以降の実装で結論が変わった箇所があるので、先にここを読むこと（`0.7.0` 時点）。
+>
+> | 節 | 調査時の結論 | 現在 |
+> |---|---|---|
+> | §4-2 | Cookie が切れる12時間超の滞留は再ログインが必要 | **ジョブ単位の送信トークン（26時間）**を導入したので、Cookie とは独立に送れる。26時間を超えた場合の導線は変わらず必要 |
+> | §4-4 | Cookie 認証なので `auth.getHeaders()` は基本不要 | **不要ではない。** Service Worker にはセッションが無いため、投入時に預けた送信トークンを `Bearer` で載せる |
+> | §5 | 判断待ち3件 | すべて決着済み → [`DESIGN.md` §5-9](DESIGN.md) |
+>
+> **後の調査で判明した追加事項**: 認証エラーは2種類ある。
+> 401 `auth_expired` は再ログインで復帰でき、403 `not_entitled`（利用権・課金ゲート）は
+> **再ログインしても復帰しない**。同じ扱いにすると現場が無限に再ログインを繰り返すため、
+> `kind: "entitlement"` として分けてある（`requiresReauth()` / `requiresAdmin()`）。
+
 ---
 
 ## 1. 結論（先に3行）
@@ -113,7 +127,7 @@ next-auth の JWT は `updateAge: 15分` で「アクセスがあれば延長」
 
 → **M4 の必須項目**として扱う（当初はオプション扱いだった）。
 
-### 4-3. 無操作15分ログアウトが最大の実務リスク（要운用判断）
+### 4-3. 無操作15分ログアウトが最大の実務リスク（要運用判断）
 
 ハンディ端末が「共用端末」設定だと 15分の放置でログアウトし、Cookie が破棄される。
 Background Sync も Cookie を使って送るため、**ログアウト後は未送信ジョブが送れない**。
@@ -163,7 +177,8 @@ pf-setsubi は現在 `@vercel/blob` を使い、`blobUrl` を DB に保存して
 
 Supabase Storage 化で必要になる作業:
 
-1. `api/upload/media/route.ts` を pf-field-core の `createSignUploadRouteHandler` に置換。
+1. `api/upload/media/route.ts` を pf-field-core の `createSignUploadRoute` に置換
+   （調査時は `createSignUploadRouteHandler` という名前で書いていた）。
 2. DB の添付テーブルに `bucket` / `path` を追加（`blobUrl` は移行期間中は残す）。
 3. 表示箇所を `<img src={d.blobUrl}>` → `useSignedUrl({ bucket, path })` に置換。
 4. **既存データの扱い**を決める:
