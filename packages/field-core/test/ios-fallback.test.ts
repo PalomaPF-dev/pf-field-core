@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isFieldCoreEvent, type FieldCoreEvent } from "../src/events.js";
 import { createTriggers } from "../src/queue/triggers.js";
 import { createOfflineQueue, type OfflineQueueOptions } from "../src/queue/queue.js";
 import type { JobProcessor } from "../src/queue/processor.js";
@@ -305,7 +306,7 @@ describe("IndexedDB の消失検知", () => {
       "pf-field-sentinel:ios-test": JSON.stringify({ unsent: 2, at: 1000, dbName: "x" }),
     });
 
-    const events: { type: string; data?: Record<string, unknown> }[] = [];
+    const events: FieldCoreEvent[] = [];
     const queue = await makeQueue({
       autoStart: true,
       onEvent: (e) => events.push(e),
@@ -313,10 +314,10 @@ describe("IndexedDB の消失検知", () => {
     // start() の後片付けは非同期
     await new Promise((r) => setTimeout(r, 50));
 
-    const evicted = events.find((e) => e.type === "storage.evicted");
+    const evicted = events.find(isFieldCoreEvent("storage.evicted"));
     expect(evicted).toBeTruthy();
-    expect(evicted?.data?.lostJobs).toBe(2);
-    expect(String(evicted?.data?.message)).toMatch(/失われました/);
+    expect(evicted?.data.lostJobs).toBe(2);
+    expect(evicted?.data.message).toMatch(/失われました/);
 
     expect((await queue.health()).evictionSuspected).toBe(true);
   });

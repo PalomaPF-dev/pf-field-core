@@ -1,3 +1,5 @@
+import { createEventEmitter, type FieldCoreEventListener } from "../events.js";
+import { createCrossTabChannel } from "./cross-tab.js";
 import { compressImage } from "../image/compress.js";
 import type { CompressedImage, CompressImageOptions } from "../image/types.js";
 import { deleteOrphanBlobs, getBlob, toStoredBlob } from "../db/blobs.repo.js";
@@ -134,12 +136,14 @@ export interface OfflineQueueOptions {
   staleActiveAfterMs?: number;
 
   logger?: FieldLogger;
-  onEvent?: (event: { type: string; at: number; data?: Record<string, unknown> }) => void;
+  onEvent?: FieldCoreEventListener;
 
   /** 多タブを見分けるための識別子。省略時は UUID */
   instanceId?: string;
   /** Web Locks を使わず IndexedDB のリースを使う（テスト用） */
   forceIdbLease?: boolean;
+  /** タブ間の変更通知を止める（テスト用）。既定は有効 */
+  crossTab?: false;
 }
 
 interface QueueEvents extends Record<string, unknown> {
@@ -165,6 +169,17 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
   const emitter = createEmitter<QueueEvents>();
   const abortControllers = new Map<string, AbortController>();
 
+  const dbName = options.dbName ?? defaultDbName(options.appId);
+  const crossTab =
+    options.crossTab === false
+      ? { post: () => {}, close: () => {}, available: false }
+      : createCrossTabChannel({
+          name: `pf-field-queue:${dbName}`,
+          selfId: instanceId,
+          // 他タブの変更を写すだけ。ここで post し返すと通知が回り続ける
+          onRemoteChange: () => void notifyLocal(),
+        });
+
   let persisted = false;
   let started = false;
   let syncing = false;
@@ -182,9 +197,7 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     shouldPoll: () => (cachedHealth?.value.unsent.jobs ?? 1) > 0,
   });
 
-  function emitEvent(type: string, data?: Record<string, unknown>): void {
-    options.onEvent?.({ type, at: now(), ...(data ? { data } : {}) });
-  }
+  const emitEvent = createEventEmitter(options.onEvent, now);
 
   async function health(force = false): Promise<StorageHealth> {
     const at = now();
@@ -206,7 +219,8 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     };
   }
 
-  async function notify(): Promise<void> {
+  /** 自分の画面へ知らせる。他タブからの通知を受けたときもここへ来る */
+  async function notifyLocal(): Promise<void> {
     if (destroyed) return;
     const current = await snapshot();
     // 消失検知の目印。IndexedDB だけが消えたときに気づけるようにする
@@ -216,6 +230,18 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
       dbName: options.dbName ?? defaultDbName(options.appId),
     });
     emitter.emit("change", current);
+  }
+
+  /**
+   * 自分の画面と、開いている他のタブへ知らせる。
+   *
+   * 他タブへ流さないと、送信した側だけが 0 件になり、
+   * もう一方は未送信バッジを抱えたまま残る（＝送れていないように見える）。
+   */
+  async function notify(): Promise<void> {
+    if (destroyed) return;
+    await notifyLocal();
+    crossTab.post();
   }
 
   // ---------------------------------------------------------------- enqueue
@@ -601,10 +627,13 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     force?: boolean;
     jobIds?: string[];
     signal?: AbortSignal;
+    /** 何がきっかけで動いたか（監視用）。公開 API には出さない */
+    trigger?: string;
   }): Promise<FlushResult> {
     const empty: FlushResult = { attempted: 0, succeeded: 0, failed: 0, skipped: 0 };
     if (destroyed) return { ...empty, reason: "stopped" };
 
+    const trigger = o?.trigger ?? "manual";
     const processor = options.processor;
     if (!processor) {
       // M3 で差し込むまではここに来る。状態は一切変えない
@@ -614,7 +643,17 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     const lock = await acquireRunnerLock(db, instanceId, {
       ...(options.forceIdbLease !== undefined ? { forceIdbLease: options.forceIdbLease } : {}),
     });
-    if (!lock) return { ...empty, reason: "locked" };
+    if (!lock) {
+      // 異常ではない。他のタブか Service Worker が既に送っている
+      emitEvent("sync.locked", { trigger });
+      return { ...empty, reason: "locked" };
+    }
+
+    const startedAt = now();
+    emitEvent("sync.started", { trigger, force: o?.force === true });
+
+    // finally で結果を報告するため、try の外で持つ
+    const result: FlushResult = { attempted: 0, succeeded: 0, failed: 0, skipped: 0 };
 
     syncing = true;
     await notify();
@@ -628,10 +667,10 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
       }
 
       if (!o?.force && options.precheck && !(await options.precheck())) {
-        return { ...empty, reason: "unreachable" };
+        result.reason = "unreachable";
+        return result;
       }
 
-      const result: FlushResult = { attempted: 0, succeeded: 0, failed: 0, skipped: 0 };
       // 1回の flush で同じジョブを2度試さない。
       // バックオフが 0 に振れたジョブで無限に回り続けるのを防ぐ
       const attempted = new Set<string>();
@@ -677,13 +716,14 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
       syncing = false;
       await lock.release();
       await notify();
+      emitEvent("sync.finished", { ...result, trigger, durationMs: now() - startedAt });
     }
   }
 
   async function flushForTrigger(reason: TriggerReason): Promise<void> {
     if (!started || destroyed) return;
     try {
-      const result = await flush();
+      const result = await flush({ trigger: reason });
       if (result.attempted > 0) {
         logger.debug("送信しました", { reason, ...result });
       }
@@ -756,6 +796,7 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     stop();
     destroyed = true;
     emitter.clear();
+    crossTab.close();
     if (!options.db) db.close();
   }
 

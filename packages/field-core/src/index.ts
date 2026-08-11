@@ -53,6 +53,14 @@ export type {
 } from "./config.js";
 export { DEFAULT_ENDPOINTS, DEFAULT_QUEUE_LIMITS, DEFAULT_STORAGE_QUOTA } from "./config.js";
 
+// 監視イベント。type で絞ると data の中身が確定する
+export { isFieldCoreEvent } from "./events.js";
+export type {
+  FieldCoreEventData,
+  FieldCoreEventListener,
+  FieldCoreEventType,
+} from "./events.js";
+
 // キューの契約
 export type {
   FlushResult,
