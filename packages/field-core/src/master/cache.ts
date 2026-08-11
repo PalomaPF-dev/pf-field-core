@@ -112,10 +112,12 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
    */
   const objectUrls = new Map<string, string>();
 
-  function objectUrlFor(key: string, blob: Blob): string {
+  // Blob の組み立ては遅延させる。`new Blob([data])` はバイト列を複製するので、
+  // 再描画のたびに図面ピン1枚ぶんを積むことになる
+  function objectUrlFor(key: string, makeBlob: () => Blob): string {
     const existing = objectUrls.get(key);
     if (existing) return existing;
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(makeBlob());
     objectUrls.set(key, url);
     return url;
   }
@@ -308,10 +310,9 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
     async availability(ref: StoredObjectRef): Promise<MediaAvailability> {
       const asset = await db.get("assets", refKey(ref));
       if (asset) {
-        const blob = new Blob([asset.data], { type: asset.contentType });
         return {
           state: "cached",
-          url: objectUrlFor(asset.key, blob),
+          url: objectUrlFor(asset.key, () => new Blob([asset.data], { type: asset.contentType })),
           bytes: asset.bytes,
           contentType: asset.contentType,
         };
