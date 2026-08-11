@@ -1,9 +1,34 @@
-# pf-field-core 設計案（実装前レビュー用）
+# pf-field-core 設計
 
 現場系アプリ4本（pf-setsubi / pf-hinshitsu / pf-zaiko / pf-keisoku）が共通で使う
-オフライン・アップロード基盤ライブラリの設計案。**この文書に合意してから実装に入る。**
+オフライン・アップロード基盤ライブラリの設計文書。
+
+> **この文書の読み方**（`0.7.0` 時点）
+>
+> 元は実装前のレビュー用に書いたもので、**「なぜそう決めたか」の記録**として残している。
+> 設計判断の背景を追うならここ、いま動いている挙動を知るなら次を見ること:
+>
+> | 知りたいこと | 見る場所 |
+> |---|---|
+> | 現在の実装状況 | [`README.md`](../README.md) |
+> | 運用（監視イベント・多タブ・容量・障害時） | [`operations.md`](./operations.md) |
+> | アプリへの組み込み | [`integration-nextjs.md`](./integration-nextjs.md) |
+> | 実際の型 | `packages/field-core/src/**/types.ts` |
+>
+> **この文書のコード片と実装が食い違うときは実装が正。**
+> 本文の API 例は設計時の案であり、実装で変わった箇所がある
+> （例: `QueueErrorKind` に `entitlement` を追加、§2.3 の注記を参照）。
 
 > **改訂履歴**
+> - rev.9 — M7 完了（DataWedge を除く）。監視イベントを型付きの判別可能ユニオンにし、
+>   **タブ間の変更通知**（BroadcastChannel）を追加。排他だけでは
+>   「送った結果が他のタブに伝わらない」ことが分かったため。
+>   滞留上限の既定値が経路によって違う件を暫定値として明記（§6-1）。
+>   `1.0.0` は DataWedge と実地投入が済むまで出さないと決めた。
+> - rev.8 — M6（前半）マスタのローカルキャッシュ完了。あわせて pf-portal 調査により
+>   **403 `not_entitled` を 401 と分ける**ことを確定（`kind: "entitlement"`）。
+>   再ログインで復帰しないものに再ログイン導線を出すと現場が堂々巡りになるため。
+>   端末時計のずれに耐える判定（サーバの `Date` ヘッダで測る）も追加。
 > - rev.7 — 検証端末を **Android と iPhone の両方**に拡大。
 >   端末能力の公開 API（`capabilities`）を確定し、Background Sync 非対応時の
 >   フォールバックと iOS のストレージ制約への対応を追加（§iOS 対応）。
@@ -375,7 +400,12 @@ export interface QueueJob<P = unknown> {
 }
 
 export interface QueueError {
-  kind: 'network' | 'timeout' | 'server' | 'auth' | 'validation' | 'quota' | 'expired' | 'aborted' | 'unknown';
+  // 0.7.0 時点の実装は 'entitlement' を含む10種類。
+  // 401 auth_expired（再ログインで戻る）と 403 not_entitled（戻らない）を
+  // 同じ 'auth' に落とすと、現場が何度ログインしても直らない操作を繰り返す。
+  // 導線の出し分けは requiresReauth() / requiresAdmin() を使う（operations.md 参照）
+  kind: 'network' | 'timeout' | 'server' | 'auth' | 'entitlement'
+      | 'validation' | 'quota' | 'expired' | 'aborted' | 'unknown';
   retryable: boolean;
   message: string;
   httpStatus?: number;
@@ -1004,11 +1034,23 @@ const { reachable } = useNetworkStatus();
 | **M1b** | Worker オフロード（実測しだい）| 実機で `/bench` の「メインスレッドの詰まり」が実用に耐えない場合のみ着手 |
 | **M2** ✅ | 永続化 + キュー骨格（`db/`, `queue/`, 滞留上限, 排他, 送信トークン）| 状態遷移は全36通りを表で検証。fake-indexeddb と実ブラウザの両方で確認済み |
 | **M3** 🔶 | **ストレージ抽象 + Supabase 実装 + 送信ランナー** | 実装は全項目完了。**3-b（実エンドポイントでの確認）だけが未実行**（この環境から `*.supabase.co` へ到達できないため）。下記の M3 詳細を参照 |
-| **M4** 🔶 | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | ライブラリ側は完了（Provider・各フック・下書き）。**pf-setsubi への投入は別リポジトリの作業として残っている**。<br> playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
-| **M5** 🔶 | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | SW 実体・`pf-field-sw build`・Background Sync とその iOS フォールバックは完了。<br>**マスタのローカルキャッシュ（完全オフライン開始）は未着手** — 対象マスタがアプリ側で確定してから |
+| **M4** 🔶 | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | ライブラリ側は完了（Provider・各フック・下書き）。<br>**pf-setsubi の Android 実機パイロットが進行中**（別リポジトリの作業）。<br> playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線と `blocked(entitlement)` の出し分け、<br>無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
+| **M5** ✅ | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）| SW 実体・`pf-field-sw build`・Background Sync とその iOS フォールバックまで完了。<br>当初この行に入れていた**マスタのローカルキャッシュは M6 へ移した**（対象マスタがアプリ側で確定するのを待ったため）|
 | **M6** 🔶 | DataWedge + **マスタのローカルキャッシュ** | マスタのローカルキャッシュは完了（一覧系の全置換・メディアの点検単位の先読み・表示可否 API）。<br>**DataWedge は Zebra 実機の到着待ちで未着手**（連休明け）|
-| **M7** 🔶 | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0`<br>監視イベントの型付け・タブ間同期・障害系テスト・[運用ガイド](./operations.md)は完了。<br>quota / purge は M2 で実装済みで、M7 では逼迫からの回復と保全を固めた |
+| **M7** ✅ | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。<br>監視イベントの型付け・タブ間同期・障害系テスト・[運用ガイド](./operations.md)まで完了。<br>quota / purge は M2 で実装済みで、M7 では逼迫からの回復と保全を固めた |
 | **M8** | 横展開（pf-hinshitsu / pf-zaiko / pf-keisoku）| 4アプリすべてが同一メジャーバージョンで稼働 |
+
+**`1.0.0` を出す条件**（当初は M7 完了時としていたが、`0.7.0` の時点で先送りした）
+
+`1.0.0` は「4アプリが同一メジャーで動く」ことへの約束になる。
+1アプリの実地投入も終わっていない段階で出すと、その約束を後から下げることになる。
+次の3つが揃ってから出す:
+
+1. **DataWedge**（M6 の後半）— Zebra 実機の到着待ち。pf-setsubi が実機で使うスキャン経路が未検証
+2. **pf-setsubi の Android 実機パイロット** — 実地投入が終わること
+3. **実 Supabase での疎通確認**（`pnpm verify:supabase`）
+
+あわせて、実測待ちの暫定値（滞留上限・圧縮の所要時間）もここで確定させる。
 
 **M1 の結果（2026-08-10）**
 

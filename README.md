@@ -3,7 +3,7 @@
 現場系アプリ4本（**pf-setsubi / pf-hinshitsu / pf-zaiko / pf-keisoku**）が共通で使う
 オフライン・アップロード基盤ライブラリ。
 
-Zebra Android ハンディ端末で、工場建屋内の圏外・弱電界エリアでも
+Zebra Android ハンディ端末と iPhone で、工場建屋内の圏外・弱電界エリアでも
 点検結果と現場写真を取りこぼさずにサーバへ届けることを目的とする。
 
 - 設計: [`docs/DESIGN.md`](docs/DESIGN.md)
@@ -13,21 +13,29 @@ Zebra Android ハンディ端末で、工場建屋内の圏外・弱電界エリ
 
 ## 現在の状態
 
-**M0（基盤整備）完了。** 使えるのは以下。
+**`0.7.0`（M0〜M7 完了、DataWedge を除く）。**
 
-| 機能 | 状態 |
-|---|---|
-| 型の契約（キュー / ストレージ / 送信 / 設定 / SW / スキャナ） | ✅ |
-| 指数バックオフの計算 | ✅ |
-| エラー分類（再試行可 / 人手が要る） | ✅ |
-| 画像処理の機能検出（実機診断用） | ✅ |
-| 画像圧縮（EXIF・向きの焼き込み・品質の二分探索） | ✅ |
-| Worker へのオフロード | M1b（実測しだい）|
-| IndexedDB キュー | M2 |
-| 署名付きURL・送信ランナー | M3 |
-| React フック | M4 |
-| Service Worker / Background Sync | M5 |
-| DataWedge 連携 | M6 |
+| 機能 | 状態 | 入口 |
+|---|---|---|
+| 画像圧縮（EXIF・向きの焼き込み・品質の二分探索） | ✅ | `/image` |
+| IndexedDB キュー（滞留上限・排他・送信トークン） | ✅ | `createFieldCore()` |
+| 署名付きURL・送信ランナー（Supabase / S3） | ✅ | `/storage`, `/server` |
+| React バインディング（Provider・各フック・下書き） | ✅ | `/react` |
+| Service Worker / Background Sync（iOS フォールバック込み） | ✅ | `/sw`, `pf-field-sw build` |
+| マスタのローカルキャッシュ（一覧の全置換・メディアの先読み） | ✅ | `useMaster` / `useCachedMedia` |
+| 端末能力の検出（Android / iOS の出し分け） | ✅ | `/` の `capabilities` |
+| 監視イベント・多タブ同期・障害系 | ✅ | [`docs/operations.md`](docs/operations.md) |
+| **DataWedge 連携** | **Zebra 実機の到着待ち** | `/scanner`（型のみ） |
+| Worker へのオフロード | M1b（実機の実測しだい・現状は不要） | — |
+
+未確定の項目（実機・実環境の確認待ち）:
+
+- **実 Supabase での署名〜転送の疎通**（`pnpm verify:supabase`）
+- **滞留上限の既定値** — 200枚 / 160MB は暫定値。実測後に確定する（[operations.md](docs/operations.md#3-容量)）
+- **圧縮の実機実測** — デスクトップでは中央値 150ms。Zebra 実機での採取が要る
+
+`1.0.0` は「4アプリが同一メジャーで動く」ことへの約束になるので、
+DataWedge と pf-setsubi の実地投入が済むまで出さない。
 
 マイルストーンの定義は [`docs/DESIGN.md` §4](docs/DESIGN.md#4-実装順序とマイルストーン)。
 
@@ -87,10 +95,27 @@ pnpm changeset      # 変更内容を記録（PR に含める）
 
 版数は `package.json` からビルド時に `VERSION` へ差し込まれる。手で書かないこと。
 
-> **リポジトリ設定が必要**: Settings → Actions → General → Workflow permissions の
-> 「Allow GitHub Actions to create and approve pull requests」を有効にしておく。
-> 無効だと、ブランチ `changeset-release/main` の push までは成功するが PR 作成で失敗する。
-> その場合はそのブランチから手で PR を作ってマージすれば publish まで進む。
+> **⚠ リポジトリ設定が未了のあいだの運用**
+>
+> Settings → Actions → General → Workflow permissions の
+> 「Allow GitHub Actions to create and approve pull requests」が**無効**だと、
+> Release ワークフローはバージョン更新 PR を作れずに**失敗する**。
+>
+> このとき `main` の Actions は「機能 PR をマージ → 赤（PR を作れない）」
+> 「バージョン PR をマージ → 緑（publish 成功）」が交互に並ぶ。
+> **publish 自体は成功している**が、赤が常態化するので本物の失敗を見落としやすい。
+> 設定を有効にすれば解消する。
+>
+> 有効にするまでは、手で次を行えば publish まで進む:
+>
+> ```bash
+> git checkout -b claude/version-x.y.z origin/main
+> pnpm version-packages      # changeset を消化して版数を上げる
+> git add .changeset packages/field-core/CHANGELOG.md packages/field-core/package.json
+> git commit -m "chore: バージョン更新 — @palomapf-dev/pf-field-core x.y.z"
+> git push -u origin claude/version-x.y.z
+> # この PR を main へマージすると Release が publish まで進む
+> ```
 
 `1.0.0` に到達するまでは `0.x`。破壊的変更もマイナーで出す。
 
