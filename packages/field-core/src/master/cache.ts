@@ -101,6 +101,35 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
   const logger = options.logger ?? noopLogger;
 
   const masterKey = (collection: string) => `${options.scope}:${collection}`;
+
+  /*
+   * オブジェクト URL は資産ごとに1本だけ作って使い回す。
+   *
+   * availability() は再描画・キャッシュ変化・圏内外の変化のたびに呼ばれる。
+   * そのつど createObjectURL すると URL が積み上がって解放されないうえ、
+   * img の src が毎回差し替わって読み込みがやり直しになる。
+   * 破棄するときは必ず revoke する（しないと Blob が解放されない）。
+   */
+  const objectUrls = new Map<string, string>();
+
+  function objectUrlFor(key: string, blob: Blob): string {
+    const existing = objectUrls.get(key);
+    if (existing) return existing;
+    const url = URL.createObjectURL(blob);
+    objectUrls.set(key, url);
+    return url;
+  }
+
+  function releaseObjectUrl(key: string): void {
+    const url = objectUrls.get(key);
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    objectUrls.delete(key);
+  }
+
+  function releaseAllObjectUrls(): void {
+    for (const key of [...objectUrls.keys()]) releaseObjectUrl(key);
+  }
   const emitter = createEmitter<{ change: void }>();
   const changed = () => emitter.emit("change", undefined);
 
@@ -139,6 +168,7 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
     for (const asset of all) {
       if (total + needBytes <= limits.maxAssetBytes) break;
       await db.delete("assets", asset.key);
+      releaseObjectUrl(asset.key);
       total -= asset.bytes;
       logger.debug?.("容量確保のため先読み済みメディアを捨てました", { key: asset.key });
     }
@@ -281,7 +311,7 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
         const blob = new Blob([asset.data], { type: asset.contentType });
         return {
           state: "cached",
-          url: URL.createObjectURL(blob),
+          url: objectUrlFor(asset.key, blob),
           bytes: asset.bytes,
           contentType: asset.contentType,
         };
@@ -309,7 +339,10 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
 
     async purgeGroup(groupId: string): Promise<number> {
       const keys = await db.getAllKeysFromIndex("assets", "by-group", groupId);
-      for (const key of keys) await db.delete("assets", key);
+      for (const key of keys) {
+        await db.delete("assets", key);
+        releaseObjectUrl(String(key));
+      }
       if (keys.length > 0) changed();
       return keys.length;
     },
@@ -319,6 +352,7 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
       await tx.objectStore("masters").clear();
       await tx.objectStore("assets").clear();
       await tx.done;
+      releaseAllObjectUrls();
       changed();
     },
 
@@ -340,6 +374,7 @@ export async function createMasterCache(options: MasterCacheOptions): Promise<Ma
     },
 
     async destroy(): Promise<void> {
+      releaseAllObjectUrls();
       if (owned) db.close();
     },
   };
