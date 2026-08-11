@@ -1,5 +1,97 @@
 # @palomapf-dev/pf-field-core
 
+## 0.6.0
+
+### Minor Changes
+
+- 1f05dd4: M7（一部）: 認証エラーの 2 分類と、端末時計のずれへの耐性。
+
+  ## 403 not_entitled を auth と分ける（**破壊的変更に近い挙動変更**）
+
+  pf-portal の調査で、認証エラーが 2 種類あることが確定した。
+
+  | 応答               | 意味               | 復帰                           |
+  | ------------------ | ------------------ | ------------------------------ |
+  | 401 `auth_expired` | 認証切れ           | **再ログインで復帰できる**     |
+  | 403 `not_entitled` | 利用権・課金ゲート | **再ログインしても復帰しない** |
+
+  これまで 401 と 403 はどちらも `kind: "auth"` に落ちていた。
+  UI が再ログイン導線を出す条件をこれで判断していると、
+  利用権が無いジョブにも導線が出て、**現場が無限に再ログインを繰り返す**。
+
+  - `QueueErrorKind` に `"entitlement"` を追加
+  - `requiresReauth(error)` / `requiresAdmin(error)` で UI が導線を出し分けられる
+  - 403 の文言に「再ログインでは解決しません」を明記
+  - **`retryAll()` は既定で entitlement を対象外にする**。
+    分類だけ直しても、再ログイン後の救済導線が戻してしまえば同じ堂々巡りになる。
+    管理者が利用権を付与したあとは `includeEntitlement: true` か個別の `retry()`
+  - 本文の `{"error":"not_entitled"}` はステータスより優先する
+
+  **アップロード経路の 403 は意味が違う。** 署名付き URL の失効がほとんどで、
+  次回は再署名すれば通る。`expired` / 再試行可に分類する
+  （これまでは恒久エラーとして扱っていた）。
+
+  ## 端末時計のずれ
+
+  送信トークンの `expiresAt` は**サーバ時刻**で発行されるのに、
+  端末は**端末時計**と比べていた。ハンディ端末の時計は数時間ずれることがあり、
+  有効なトークンを「期限切れ」と誤判定すると、
+  M3 の最適化（期限切れなら通信しない）と噛み合って
+  **一度も送信を試みないまま `blocked(auth)` に落ちる**。
+
+  - サーバ応答の `Date` ヘッダからずれを測る（専用の往復は不要）
+  - **測れていないうちは、期限切れを理由に送信を止めない。**
+    認証の正否を決めるのはサーバであって端末時計ではない
+  - `judgeExpiry()` は「期限切れか」と「その判断を信じてよいか」を返す
+  - `describeClockSkew()` で「時計が約 N 分ずれています」と画面に出せる
+
+- f64a529: M6（前半）: マスタのローカルキャッシュ。圏外で点検を新規に開始するための土台。
+
+  ```tsx
+  const { items } = useMaster<Equipment>("equipment");
+  const { prefetch } = usePrefetchMedia();
+
+  // 点検開始時に、その点検のぶんだけ先読みする
+  await prefetch({ groupId: sheetId, refs: [normalSampleRef, pinMapRef] });
+
+  const { url, showOnlineOnlyNotice, reportUnavailable } = useCachedMedia(ref);
+  {
+    url ? (
+      <img src={url} onError={reportUnavailable} />
+    ) : (
+      showOnlineOnlyNotice && <p>オンライン時に表示されます</p>
+    );
+  }
+  ```
+
+  **新しい公開 API**
+
+  - `core.master` / `createMasterCache()`
+  - `useMaster()` / `useCachedMedia()` / `usePrefetchMedia()`
+  - `config.master`（`scope` / `fetchCollections` / `limits`）
+  - IndexedDB スキーマ v3（`masters` / `assets`。既存ストアには触らない）
+
+  **方式**
+
+  - 一覧系（設備台帳・点検表・職場）は**全置換**。起動時とオンライン復帰時に更新
+  - メディア（正常見本・図面ピン）は**点検開始時に該当分だけ先読み**。
+    全設備分は持たない（容量が持たない）
+  - 取得範囲は会社・工場のスコープに限定する。
+    容量のためだけでなく、**全社分を端末に置くとテナント分離が端末の中で崩れる**ため
+
+  **表示可否**
+
+  `MediaAvailability` の `unavailable` が「オンライン時に表示されます」を出す条件。
+  「読み込み失敗」「画像がありません」と出してはいけない（データの不備に見える）。
+
+  `navigator.onLine` は信じない。真でも実際には通らないことがあるため、
+  `<img onError>` から `reportUnavailable()` を呼んで落とせる経路を用意した。
+
+  **容量**
+
+  マスタ用の枠は未送信ジョブとは**別**（既定 60MB、古い順に破棄）。
+  マスタは取り直せるが未送信は端末にしか無いので、同じ枠で数えてはいけない。
+
 ## 0.5.0
 
 ### Minor Changes
