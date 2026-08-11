@@ -35,6 +35,14 @@ export type { UseSignedUrlResult, UseSignedUrlsResult } from "./use-signed-url.j
 export { useServiceWorkerUpdate } from "./use-service-worker.js";
 export type { UseServiceWorkerOptions, UseServiceWorkerResult } from "./use-service-worker.js";
 
+/**
+ * マスタのローカルキャッシュ。圏外で点検を新規に開始するための土台。
+ * `useCachedMedia().showOnlineOnlyNotice` が
+ * 「オンライン時に表示されます」を出す条件。
+ */
+export { useCachedMedia, useMaster, usePrefetchMedia } from "./use-master.js";
+export type { UseMasterResult, UseMediaResult, UsePrefetchResult } from "./use-master.js";
+
 /** 下書き。圏外で入力を続けるための土台 */
 export { useDraft } from "./use-draft.js";
 export type { UseDraftOptions, UseDraftResult } from "./use-draft.js";
