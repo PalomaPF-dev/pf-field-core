@@ -7,6 +7,7 @@ import {
   type StorageInfo,
 } from "./config.js";
 import { createDraftStore } from "./draft/store.js";
+import { createMasterCache } from "./master/cache.js";
 import { openFieldDB } from "./db/open.js";
 import { defaultDbName } from "./db/schema.js";
 import { createOfflineQueue } from "./queue/queue.js";
@@ -52,6 +53,18 @@ export async function configureFieldCore(config: FieldCoreConfig): Promise<Field
   // 接続は1本。キューと下書きで開き直さない
   const db = await openFieldDB(config.dbName ?? defaultDbName(config.appId));
   const drafts = await createDraftStore({ appId: config.appId, db });
+
+  const master = await createMasterCache({
+    appId: config.appId,
+    db,
+    scope: config.master?.scope ?? config.appId,
+    ...(config.master?.fetchCollections
+      ? { fetchCollections: config.master.fetchCollections }
+      : {}),
+    ...(config.master?.limits ? { limits: config.master.limits } : {}),
+    urls: files,
+    logger,
+  });
 
   const queue = await createOfflineQueue({
     appId: config.appId,
@@ -107,10 +120,25 @@ export async function configureFieldCore(config: FieldCoreConfig): Promise<Field
     ...(config.onEvent ? { onEvent: config.onEvent } : {}),
   });
 
+  /*
+   * マスタの取り直しは起動時とオンライン復帰時。
+   * 圏外なら refresh() 自身が何もしないので、ここでは素直に呼ぶだけでよい。
+   */
+  const refreshMaster = () => {
+    void master.refresh().catch(() => {
+      // 取れなくても既存のキャッシュで点検は開始できる。ここで落とさない
+    });
+  };
+  if (config.master?.refreshOnStart !== false) refreshMaster();
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", refreshMaster);
+  }
+
   return {
     queue,
     files,
     drafts,
+    master,
 
     async storage(): Promise<StorageInfo> {
       const estimate = await estimateStorage();
@@ -123,7 +151,9 @@ export async function configureFieldCore(config: FieldCoreConfig): Promise<Field
     },
 
     async destroy() {
+      if (typeof window !== "undefined") window.removeEventListener("online", refreshMaster);
       files.invalidate();
+      await master.destroy();
       await drafts.destroy();
       // 接続を閉じるのはキュー側（db を渡してあるので二重には閉じない）
       await queue.destroy();

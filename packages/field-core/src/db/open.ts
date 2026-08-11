@@ -53,6 +53,16 @@ export async function openFieldDB(
           drafts.createIndex("by-updated", "updatedAt");
           drafts.createIndex("by-type", "type");
         }
+        // v3: マスタのローカルキャッシュ（M6）。既存のストアには触らない
+        if (oldVersion < 3) {
+          const masters = db.createObjectStore("masters", { keyPath: "key" });
+          masters.createIndex("by-collection", "collection");
+
+          const assets = db.createObjectStore("assets", { keyPath: "key" });
+          assets.createIndex("by-group", "groupId");
+          // 容量が苦しいときに古い順で捨てる
+          assets.createIndex("by-fetched", "fetchedAt");
+        }
         // 以降のバージョンはここに追記する。
         // 未送信ジョブは端末にしか無いデータなので、移行では絶対に消さないこと。
       },

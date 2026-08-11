@@ -1,5 +1,7 @@
 import type { CompressImageOptions } from "./image/types.js";
 import type { DraftStore } from "./draft/store.js";
+import type { MasterCache } from "./master/cache.js";
+import type { MasterCacheLimits, MasterCollectionInput } from "./master/types.js";
 import type { FileUrlResolver, StorageAdapter } from "./storage/types.js";
 import type { SubmitAdapter } from "./submit/types.js";
 import type { BackoffOptions } from "./queue/backoff.js";
@@ -90,6 +92,26 @@ export interface FieldCoreConfig {
     blockBelowBytes?: number;
   };
 
+  /**
+   * マスタのローカルキャッシュ（M6）。
+   *
+   * 一覧系は起動時とオンライン復帰時に全置換で取り直す。
+   * メディア（正常見本・図面ピン）は**点検開始時に該当分だけ**先読みする
+   * （全設備分を持つと容量が持たない）。
+   */
+  master?: {
+    /**
+     * 会社・工場のスコープ。**取得範囲を絞るのは容量のためだけではない。**
+     * 全社分を端末に置くと、テナント分離が端末の中で崩れる。
+     */
+    scope: string;
+    /** 一覧系マスタの取得 */
+    fetchCollections?: (scope: string) => Promise<MasterCollectionInput[]>;
+    limits?: Partial<MasterCacheLimits>;
+    /** 起動時に取り直すか。既定 true */
+    refreshOnStart?: boolean;
+  };
+
   /** アプリ既定の圧縮設定 */
   image?: CompressImageOptions;
 
@@ -129,6 +151,11 @@ export interface FieldCore {
    * ここに落としておかないと「圏外で入力を継続する」が成立しない。
    */
   drafts: DraftStore;
+  /**
+   * マスタのローカルキャッシュ。圏外で点検を新規に開始するための土台。
+   * `config.master` を設定していない場合も、空のキャッシュとして使える。
+   */
+  master: MasterCache;
   storage(): Promise<StorageInfo>;
   destroy(): Promise<void>;
 }

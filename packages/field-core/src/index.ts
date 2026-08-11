@@ -85,6 +85,23 @@ export {
 // 設定ひとつから一式を組み立てる入口
 export { configureFieldCore } from "./core.js";
 
+/**
+ * マスタのローカルキャッシュ（M6）。
+ * 一覧系は全置換、メディアは点検開始時に該当分だけ先読みする。
+ */
+export { createMasterCache } from "./master/cache.js";
+export type { MasterCache, MasterCacheOptions } from "./master/cache.js";
+export { DEFAULT_MASTER_LIMITS } from "./master/types.js";
+export type {
+  MasterCacheLimits,
+  MasterCacheStats,
+  MasterCollection,
+  MasterCollectionInput,
+  MediaAvailability,
+  PrefetchRequest,
+  PrefetchResult,
+} from "./master/types.js";
+
 /** 下書き（入力中の値）。圏外で入力を継続するための土台 */
 export { createDraftStore } from "./draft/store.js";
 export type { Draft, DraftStore, DraftStoreOptions } from "./draft/store.js";
