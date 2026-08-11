@@ -387,11 +387,29 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
     }
   }
 
-  async function retryAll(o?: { includeBlocked?: boolean }): Promise<void> {
+  async function retryAll(o?: {
+    includeBlocked?: boolean;
+    includeEntitlement?: boolean;
+  }): Promise<void> {
     const statuses: QueueJob["status"][] = o?.includeBlocked
       ? ["failed", "blocked"]
       : ["failed"];
-    const jobs = await listJobs(db, { status: statuses });
+    const all = await listJobs(db, { status: statuses });
+
+    /*
+     * 利用権が無い（entitlement）ジョブは、再ログインしても状況が変わらない。
+     *
+     * この導線は「再ログインしたので、もう一度送ってみる」ためのもの。
+     * ここに entitlement を混ぜると、送り直して同じ理由で blocked に戻るだけで、
+     * 現場から見ると「ログインし直しても未送信が減らない」になる。
+     * 管理者が利用権を付与したあとに送り直したい場合は、
+     * includeEntitlement か、ジョブ個別の retry() を使う。
+     */
+    const jobs =
+      o?.includeEntitlement === true
+        ? all
+        : all.filter((job) => job.lastError?.kind !== "entitlement");
+
     for (const job of jobs) {
       await updateJob(db, job.jobId, (current) =>
         current.status === "failed" || current.status === "blocked"
@@ -400,7 +418,11 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
       );
     }
     if (jobs.length > 0) {
-      emitEvent("job.retried-all", { count: jobs.length, includeBlocked: o?.includeBlocked === true });
+      emitEvent("job.retried-all", {
+        count: jobs.length,
+        includeBlocked: o?.includeBlocked === true,
+        skippedEntitlement: all.length - jobs.length,
+      });
       await notify();
       void flushForTrigger("manual");
     }
@@ -471,15 +493,29 @@ export async function createOfflineQueue(options: OfflineQueueOptions): Promise<
          * 付与の条件にすると、Background Sync 経由の送信だけ
          * Authorization が落ちて 401 になる。
          */
-        const token = await getJobToken(db, job.jobId);
+        const found = await getJobToken(db, job.jobId);
 
         // 「トークンを使う構成なのに無い」ときだけ、送る前に止める。
         // Cookie のみの構成では立てない
         const required = options.requireJobToken ?? Boolean(options.issueJobToken);
-        if (!token) return { headers: base, tokenMissing: required };
+        if (!found) return { headers: base, tokenMissing: required };
+
+        /*
+         * 期限切れでも、その判断が端末時計だけを根拠にしているなら止めない。
+         * ハンディ端末の時計は数時間ずれることがあり、
+         * 有効なトークンを捨てて blocked(auth) に落とすほうが害が大きい。
+         * 認証の正否はサーバが決める。
+         */
+        if (found.expired && found.confident) {
+          emitEvent("token.expired", { jobId: job.jobId });
+          return { headers: base, tokenMissing: required };
+        }
+        if (found.expired && !found.confident) {
+          emitEvent("clock.untrusted", { jobId: job.jobId });
+        }
 
         return {
-          headers: { ...base, Authorization: `Bearer ${token.token}` },
+          headers: { ...base, Authorization: `Bearer ${found.token.token}` },
           tokenMissing: false,
         };
       },

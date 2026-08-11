@@ -4,6 +4,7 @@ import type { JobProcessor } from "../src/queue/processor.js";
 import type { OfflineQueue } from "../src/queue/types.js";
 import { openFieldDB, type FieldDB } from "../src/db/open.js";
 import { getJobToken } from "../src/db/tokens.repo.js";
+import { recordServerDate, resetClockSkew } from "../src/shared/clock-skew.js";
 import { DEFAULT_JOB_TOKEN_TTL_MS } from "../src/db/schema.js";
 import { noopLogger } from "../src/shared/logger.js";
 
@@ -74,7 +75,7 @@ describe("発行", () => {
     expect(issue.mock.calls[0]?.[0]).toMatchObject({ jobId: job.jobId, type: "t" });
 
     const stored = await getJobToken(db, job.jobId);
-    expect(stored?.token).toBe(`tok-${job.jobId}`);
+    expect(stored?.token.token).toBe(`tok-${job.jobId}`);
   });
 
   it("既定の有効期限は26時間", async () => {
@@ -84,7 +85,7 @@ describe("発行", () => {
     const job = await queue.enqueue({ type: "t", payload: {} });
 
     const stored = await getJobToken(db, job.jobId);
-    const ttl = (stored?.expiresAt ?? 0) - (stored?.createdAt ?? 0);
+    const ttl = (stored?.token.expiresAt ?? 0) - (stored?.token.createdAt ?? 0);
     expect(ttl).toBe(DEFAULT_JOB_TOKEN_TTL_MS);
     expect(ttl).toBeGreaterThan(12 * 60 * 60 * 1000);
   });
@@ -94,7 +95,7 @@ describe("発行", () => {
     const queue = await makeQueue({ issueJobToken: async () => ({ token: "tok", expiresAt }) });
     const job = await queue.enqueue({ type: "t", payload: {} });
 
-    expect((await getJobToken(db, job.jobId))?.expiresAt).toBe(expiresAt);
+    expect((await getJobToken(db, job.jobId))?.token.expiresAt).toBe(expiresAt);
   });
 
   it("トークンは jobs には入らない（list に乗せない）", async () => {
@@ -182,13 +183,34 @@ describe("破棄", () => {
     expect(await getJobToken(db, b.jobId)).toBeUndefined();
   });
 
-  it("期限切れのトークンは無いものとして扱う", async () => {
+  it("期限切れは、時計のずれを測れていれば期限切れとして返す", async () => {
     const queue = await makeQueue({
-      issueJobToken: async () => ({ token: "tok", expiresAt: Date.now() - 1 }),
+      issueJobToken: async () => ({ token: "tok", expiresAt: Date.now() - 60_000 }),
     });
     const job = await queue.enqueue({ type: "t", payload: {} });
 
-    // 期限切れ → 送信ランナーからは「トークンなし」に見える（M3 で blocked(auth) にする）
-    expect(await getJobToken(db, job.jobId)).toBeUndefined();
+    // ずれ ≒ 0 と分かっている状態
+    recordServerDate(new Date().toUTCString());
+
+    const found = await getJobToken(db, job.jobId);
+    expect(found).toMatchObject({ expired: true, confident: true });
+  });
+
+  it("★ 時計のずれを測れていなければ、期限切れでも捨てない", async () => {
+    /*
+     * expiresAt はサーバ時刻。端末時計が数時間ずれていると、
+     * 有効なトークンを「期限切れ」と誤判定してしまう。
+     * 判断の確からしさを添えて返し、送るかどうかは呼び出し側に委ねる。
+     */
+    resetClockSkew();
+
+    const queue = await makeQueue({
+      issueJobToken: async () => ({ token: "tok", expiresAt: Date.now() - 60_000 }),
+    });
+    const job = await queue.enqueue({ type: "t", payload: {} });
+
+    const found = await getJobToken(db, job.jobId);
+    expect(found).toMatchObject({ expired: true, confident: false });
+    expect(found?.token.token).toBe("tok");
   });
 });

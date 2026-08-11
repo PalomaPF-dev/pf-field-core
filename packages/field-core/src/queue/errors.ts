@@ -16,7 +16,31 @@ export interface Classification {
  * ※ 409（既に存在する）は冪等な成功としてランナーが先に処理するので、ここには来ない想定。
  *   万一来たら「同じ内容を投げ直しても変わらない」ので retryable=false とする。
  */
-export function classifyHttpStatus(status: number): Classification {
+/**
+ * どの経路の応答か。同じ 403 でも意味が違う。
+ *
+ * - `api`（署名要求・本体送信）… 403 は利用権が無い（再ログインでは直らない）
+ * - `upload`（署名付きURLへの直送）… 403 は署名の失効がほとんど。
+ *   再署名すれば通るので、待てば直る側に置く
+ */
+export type ResponseContext = "api" | "upload";
+
+/**
+ * サーバが返すエラーコード → 分類。
+ * ステータスだけでは足りない場合に、本文のコードで上書きする。
+ */
+export function classifyErrorCode(code: string | undefined): Classification | null {
+  switch (code) {
+    case "auth_expired":
+      return { kind: "auth", retryable: false };
+    case "not_entitled":
+      return { kind: "entitlement", retryable: false };
+    default:
+      return null;
+  }
+}
+
+export function classifyHttpStatus(status: number, context: ResponseContext = "api"): Classification {
   // 待てば直る見込みがあるもの
   if (status === 408) return { kind: "timeout", retryable: true };
   if (status === 425) return { kind: "server", retryable: true };
@@ -24,7 +48,20 @@ export function classifyHttpStatus(status: number): Classification {
   if (status >= 500 && status !== 507) return { kind: "server", retryable: true };
 
   // 人手が要るもの
-  if (status === 401 || status === 403) return { kind: "auth", retryable: false };
+  if (status === 401) return { kind: "auth", retryable: false };
+
+  /*
+   * 403 は経路で意味が変わる。
+   *
+   * api   … 利用権が無い（not_entitled）。**再ログインしても直らない**ので、
+   *         auth と同じ扱いにしてはいけない。混ぜると現場が再ログインを繰り返す
+   * upload… 署名付きURLの失効がほとんど。次回は再署名するので待てば直る
+   */
+  if (status === 403) {
+    return context === "upload"
+      ? { kind: "expired", retryable: true }
+      : { kind: "entitlement", retryable: false };
+  }
   if (status === 400 || status === 413 || status === 415 || status === 422) {
     return { kind: "validation", retryable: false };
   }
@@ -83,9 +120,19 @@ export function toQueueError(
   return e;
 }
 
-/** HTTP レスポンスから QueueError を作る。 */
-export function queueErrorFromResponse(status: number, statusText?: string, body?: string): QueueError {
-  const c = classifyHttpStatus(status);
+/**
+ * HTTP レスポンスから QueueError を作る。
+ *
+ * 本文に `{"error":"not_entitled"}` のようなコードがあればそちらを優先する。
+ * ステータスは同じでも意味が違うことがあるため。
+ */
+export function queueErrorFromResponse(
+  status: number,
+  statusText?: string,
+  body?: string,
+  context: ResponseContext = "api",
+): QueueError {
+  const c = classifyErrorCode(extractErrorCode(body)) ?? classifyHttpStatus(status, context);
   const detail = [statusText, body?.slice(0, 200)].filter(Boolean).join(" / ");
   return toQueueError(c, detail ? `HTTP ${status}: ${detail}` : `HTTP ${status}`, status);
 }
@@ -95,6 +142,33 @@ export function queueErrorFromThrown(error: unknown, options?: { timedOut?: bool
   const c = classifyThrown(error, options);
   const message = error instanceof Error ? error.message : String(error);
   return toQueueError(c, message);
+}
+
+/** 本文から `error` コードを取り出す。JSON でなければ諦める */
+export function extractErrorCode(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; code?: unknown };
+    const code = parsed.error ?? parsed.code;
+    return typeof code === "string" ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 再ログインで復帰できるか。**UI の導線を決める。**
+ *
+ * `entitlement` に再ログイン導線を出してはいけない。
+ * 何度ログインしても状況は変わらず、現場は同じ操作を繰り返すことになる。
+ */
+export function requiresReauth(error: QueueError): boolean {
+  return error.kind === "auth";
+}
+
+/** 管理者の対応が要るか（利用権・課金）。利用者の操作では解決しない */
+export function requiresAdmin(error: QueueError): boolean {
+  return error.kind === "entitlement";
 }
 
 /** blocked（人手が要る）に落とすべきか。 */

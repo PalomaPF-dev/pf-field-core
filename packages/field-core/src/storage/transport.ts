@@ -193,7 +193,8 @@ export async function uploadToTarget(
       }
 
       if (status < 200 || status >= 300) {
-        throw uploadFailure(queueErrorFromResponse(status, undefined, responseText));
+        // 署名付きURLへの直送。403 は署名の失効がほとんどなので upload 文脈で分類する
+        throw uploadFailure(queueErrorFromResponse(status, undefined, responseText, "upload"));
       }
     } else {
       const response = await safeFetch(target.request.url, {
@@ -213,7 +214,10 @@ export async function uploadToTarget(
         };
       }
 
-      const error = responseError(response, { statusText: response.statusText });
+      const error = responseError(response, {
+        statusText: response.statusText,
+        context: "upload",
+      });
       if (error) throw uploadFailure(error);
     }
 

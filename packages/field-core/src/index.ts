@@ -178,13 +178,33 @@ export { defaultDbName } from "./db/schema.js";
 // エラー分類
 export type { Classification } from "./queue/errors.js";
 export {
+  classifyErrorCode,
   classifyHttpStatus,
   classifyThrown,
+  extractErrorCode,
   isPermanent,
   queueErrorFromResponse,
   queueErrorFromThrown,
+  /** 再ログイン導線を出してよいか。entitlement には出さない */
+  requiresAdmin,
+  requiresReauth,
   toQueueError,
 } from "./queue/errors.js";
+export type { ResponseContext } from "./queue/errors.js";
+
+/**
+ * 端末時計のずれ。
+ * トークンの期限はサーバ時刻で発行されるので、端末時計だけで判断しない。
+ */
+export {
+  describeClockSkew,
+  getClockSkew,
+  judgeExpiry,
+  recordServerDate,
+  resetClockSkew,
+  serverNow,
+} from "./shared/clock-skew.js";
+export type { ClockSkew, ExpiryVerdict } from "./shared/clock-skew.js";
 
 // ストレージ・送信の契約（実装は ./storage / ./server から）
 export type {
