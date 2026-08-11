@@ -161,7 +161,7 @@ export const POST = createSignViewRoute({
 
 > `/server` は**サーバ専用**。クライアントコンポーネントから import してはいけない
 > （`SUPABASE_SECRET_KEY` を読むため）。誤って辿れる経路ができていないかは
-> ライブラリ側の `no-client-leak` テストが見張っている。
+> ライブラリ側の `packaging.test.ts` が見張っている。
 
 ### 4-2. Provider で包む
 

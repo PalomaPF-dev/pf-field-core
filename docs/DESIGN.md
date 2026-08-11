@@ -108,114 +108,76 @@
 
 ### 1.2 ディレクトリ
 
+`0.7.0` 時点の実際の構成。設計時の想定から**名前と粒度が変わっている**ので、
+以前の版のツリーを覚えている場合は読み替えること
+（`queue/runner.ts` は `queue/queue.ts` と `queue/upload-processor.ts` に分かれ、
+`server/sign-*-handler.ts` は `server/routes.ts` に統合された）。
+
 ```
 pf-field-core/
-├── pnpm-workspace.yaml
-├── tsconfig.base.json
 ├── .changeset/
 ├── .github/workflows/{ci.yml, release.yml}
 ├── docs/
-│   ├── DESIGN.md                      # 本書
-│   ├── auth-findings.md               # pf-portal / pf-setsubi の認証実装 調査結果
-│   ├── integration-nextjs.md          # アプリ側組み込み手順
-│   ├── storage-contract.md            # sign/view エンドポイントの契約（プロバイダ非依存）
-│   ├── supabase-setup.md              # バケット作成・RLS 確認・環境変数
-│   └── datawedge-profile.md           # DataWedge プロファイル設定手順
-├── packages/
-│   └── field-core/
-│       ├── package.json               # @palomapf-dev/pf-field-core
-│       ├── tsup.config.ts
-│       └── src/
-│           ├── index.ts
-│           ├── config.ts
-│           │
-│           ├── image/
-│           │   ├── compress.ts        # compressImage 本体
-│           │   ├── decode.ts          # createImageBitmap / <img> フォールバック
-│           │   ├── encode.ts          # OffscreenCanvas / HTMLCanvasElement 抽象
-│           │   ├── exif.ts            # Orientation 読取 + 変換行列
-│           │   ├── quality-search.ts  # 目標バイト数への品質二分探索
-│           │   ├── worker/{compress.worker.ts, pool.ts}
-│           │   └── types.ts
-│           │
-│           ├── db/
-│           │   ├── schema.ts          # ストア定義とマイグレーション
-│           │   ├── open.ts
-│           │   ├── jobs.repo.ts
-│           │   ├── blobs.repo.ts
-│           │   └── storage-quota.ts   # quota 見積 / persist() / 自動purge
-│           │
-│           ├── queue/
-│           │   ├── queue.ts           # 公開 API（enqueue / list / flush ...）
-│           │   ├── runner.ts          # 送信ループ（page / SW 共通）
-│           │   ├── state.ts           # ジョブ状態遷移
-│           │   ├── backoff.ts         # 指数バックオフ + full jitter
-│           │   ├── lock.ts            # Web Locks + IDB リース フォールバック
-│           │   ├── triggers.ts        # online / visibilitychange / interval
-│           │   ├── errors.ts          # retryable / permanent 分類
-│           │   └── types.ts
-│           │
-│           ├── storage/               # ★ 差し替え可能な継ぎ目（端末側）
-│           │   ├── adapter.ts         # StorageAdapter インターフェース定義
-│           │   ├── http-signed.ts     # 既定実装：プロバイダ非依存（/api/uploads/sign 経由）
-│           │   ├── supabase-direct.ts # 変種：端末から supabase-js で直接発行（任意）
-│           │   ├── memory.ts          # テスト用のインメモリ実装
-│           │   ├── transport.ts       # UploadTarget を実行（XHR=進捗あり / fetch=SW用）
-│           │   └── types.ts           # UploadTarget / StoredObjectRef ほか
-│           │
-│           ├── submit/                # ★ 差し替え可能な継ぎ目（レコード送信先）
-│           │   ├── adapter.ts         # SubmitAdapter インターフェース
-│           │   ├── http.ts            # 既定：Next.js Route Handler へ POST
-│           │   └── supabase-rpc.ts    # 将来：Supabase RPC へ直接（DB移行後）
-│           │
-│           ├── net/
-│           │   ├── reachability.ts    # 到達性プローブ（lie-fi 検出）
-│           │   ├── status.ts          # NetworkStatus ストア
-│           │   └── fetch-timeout.ts
-│           │
-│           ├── scanner/
-│           │   ├── keyboard.ts        # キーボードエミュレーション解析
-│           │   ├── bridge.ts          # WebView Intent ブリッジ（任意）
-│           │   └── types.ts
-│           │
-│           ├── react/
-│           │   ├── FieldCoreProvider.tsx
-│           │   ├── useOfflineQueue.ts
-│           │   ├── useQueueJob.ts
-│           │   ├── useNetworkStatus.ts
-│           │   ├── useImageCompress.ts
-│           │   ├── useSignedUrl.ts    # 閲覧用URLの都度発行 + キャッシュ
-│           │   ├── useDataWedgeScanner.ts
-│           │   └── useServiceWorkerUpdate.ts
-│           │
-│           ├── sw/
-│           │   ├── create.ts          # createFieldServiceWorker()
-│           │   ├── strategies.ts      # cacheFirst / networkFirst / SWR
-│           │   ├── precache.ts
-│           │   ├── cache-key.ts       # 署名付きURLの正規化キャッシュキー
-│           │   └── sync.ts            # sync イベント → runner
-│           │
-│           ├── server/                # ★ 差し替え可能な継ぎ目（サーバ側）
-│           │   ├── sign-upload-handler.ts  # POST /api/uploads/sign
-│           │   ├── sign-view-handler.ts    # POST /api/files/sign-view
-│           │   ├── providers/
-│           │   │   ├── supabase.ts    # supabaseStorageProvider()
-│           │   │   ├── s3.ts          # s3StorageProvider()（差し替え可能性の実証・任意）
-│           │   │   └── types.ts       # StorageProvider インターフェース
-│           │   ├── object-path.ts     # パス生成規約（クライアント入力を信用しない）
-│           │   └── types.ts
-│           │
-│           ├── cli/
-│           │   └── build-sw.ts        # esbuild で sw.js + precache manifest 生成
-│           │
-│           └── shared/
-│               ├── uuid.ts, emitter.ts, logger.ts, clock.ts, result.ts
+│   ├── DESIGN.md                # 本書。設計判断の記録
+│   ├── operations.md            # 運用（監視イベント・多タブ・容量・障害時）
+│   ├── integration-nextjs.md    # アプリ側の組み込み手順
+│   ├── auth-findings.md         # pf-portal / pf-setsubi の認証実装 調査結果
+│   └── supabase-setup.md        # バケット作成・RLS 確認・環境変数
+├── packages/field-core/src/
+│   ├── index.ts                 # 主エントリ
+│   ├── core.ts                  # createFieldCore()
+│   ├── config.ts                # FieldCoreConfig
+│   ├── events.ts                # 監視イベント（判別可能ユニオン）
+│   ├── version.ts               # ビルド時に package.json から差し込む
+│   │
+│   ├── capabilities/            # 端末能力の検出（Android / iOS の出し分け）
+│   │
+│   ├── image/                   # 圧縮。compress / decode / canvas / exif / orientation
+│   │   └── quality-search.ts    # 目標バイト数への品質二分探索
+│   │
+│   ├── db/                      # IndexedDB（スキーマ v3）
+│   │   ├── schema.ts            # ストア定義とマイグレーション
+│   │   ├── jobs.repo.ts / blobs.repo.ts / drafts.repo.ts / tokens.repo.ts
+│   │   ├── quota.ts             # 容量の見積り・滞留上限・enqueue の可否
+│   │   └── eviction.ts          # ブラウザによる消失の検知（best-effort）
+│   │
+│   ├── queue/
+│   │   ├── queue.ts             # 公開 API（enqueue / list / flush ...）
+│   │   ├── upload-processor.ts  # 署名 → アップロード → 本体送信
+│   │   ├── state.ts             # ジョブ状態遷移
+│   │   ├── backoff.ts           # 指数バックオフ + full jitter
+│   │   ├── lock.ts              # Web Locks + IDB リース フォールバック
+│   │   ├── cross-tab.ts         # タブ間の変更通知（BroadcastChannel）
+│   │   ├── triggers.ts          # online / visibilitychange / interval
+│   │   └── errors.ts            # 再試行可 / 人手が要る の分類
+│   │
+│   ├── storage/                 # ★ 差し替え可能な継ぎ目（端末側）
+│   │   ├── http-signed.ts       # 既定：プロバイダ非依存（/api/uploads/sign 経由）
+│   │   ├── transport.ts         # 転送（XHR=進捗あり / fetch=SW 用）
+│   │   ├── url-resolver.ts      # 閲覧用URLの発行とキャッシュ
+│   │   └── memory.ts            # テスト用
+│   │
+│   ├── submit/                  # ★ 差し替え可能な継ぎ目（レコード送信先）
+│   ├── master/                  # マスタのローカルキャッシュ（一覧 + メディア先読み）
+│   ├── draft/                   # 下書き（圏外で入力を続ける）
+│   ├── net/fetch-safe.ts        # timeout / redirect:"manual" / 応答の分類
+│   │
+│   ├── react/                   # provider.tsx と use-*.ts
+│   ├── sw/                      # createFieldServiceWorker / register / Background Sync
+│   ├── scanner/                 # DataWedge（型のみ。実装は Zebra 実機の到着後）
+│   │
+│   ├── server/                  # ★ サーバ側。SUPABASE_SECRET_KEY を読む
+│   │   ├── routes.ts            # createSignUploadRoute / createSignViewRoute（認可の実体）
+│   │   ├── supabase.ts / s3.ts  # StorageProvider の実装2種
+│   │   └── path.ts              # 保存パスの生成（クライアント入力を信用しない）
+│   │
+│   ├── cli/                     # pf-field-sw build（esbuild で sw.js + precache）
+│   └── shared/                  # uuid / emitter / logger / clock / clock-skew / errors
 │
-├── apps/
-│   └── playground/                    # Next.js 検証アプリ（オフライン再現・E2E対象）
+├── apps/playground/             # Next.js 検証アプリ（実機診断・E2E の対象）
 └── test/
-    ├── unit/                          # vitest + fake-indexeddb
-    └── e2e/                           # playwright（offline / throttle / SW）
+    ├── e2e/                     # playwright（android-handheld / ios-safari）
+    └── ../packages/field-core/test/   # vitest + fake-indexeddb
 ```
 
 ---
@@ -668,6 +630,19 @@ export function s3StorageProvider(o: { /* bucket, region, client, expiresInSec .
 
 **Route Handler**
 
+> ⚠ **実装では名前が変わっている。**この節のコード片は設計時の案。
+> 動くものは [`integration-nextjs.md` §4-1](integration-nextjs.md) を見ること。
+>
+> | 設計時 | 実装 |
+> |---|---|
+> | `createSignUploadRouteHandler` | `createSignUploadRoute` |
+> | `createSignViewRouteHandler` | `createSignViewRoute` |
+> | `supabaseStorageProvider(...)` | `supabaseStorageFromEnv()` / `createSupabaseStorageProvider(...)` |
+> | `s3StorageProvider(...)` | `createS3StorageProvider(...)` |
+> | `AuthContext.tenantId` | `AuthContext.companyId`（`tenantId` は旧称として読むだけ受け付ける）|
+>
+> `appId` を Route Handler の引数として受け取る点も実装で追加された（保存パスの第2階層）。
+
 ```ts
 export function createSignUploadRouteHandler(o: {
   provider: StorageProvider;
@@ -898,7 +873,9 @@ export function useDataWedgeScanner(o: ScannerOptions & { onScan(e: ScanEvent): 
 (b) 長さが `minLength` 以上、(c) `terminator` で終端 — の3条件でスキャンと判定。
 `prefix`/`suffix` があればそちらを優先（決定的なので誤検知ゼロ）。
 **運用としては DataWedge プロファイルで prefix/suffix を付ける設定を推奨**し、
-手順を `docs/datawedge-profile.md` に書く。ヒューリスティックは保険。
+手順は `docs/datawedge-profile.md` に書く（**Zebra 実機の到着後**。
+実機に触らずに書いても確かめられないので、まだ作っていない）。
+ヒューリスティックは保険。
 
 ### 2.7 React バインディング — `@palomapf-dev/pf-field-core/react`
 
