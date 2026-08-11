@@ -1007,7 +1007,7 @@ const { reachable } = useNetworkStatus();
 | **M4** 🔶 | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | ライブラリ側は完了（Provider・各フック・下書き）。**pf-setsubi への投入は別リポジトリの作業として残っている**。<br> playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
 | **M5** 🔶 | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | SW 実体・`pf-field-sw build`・Background Sync とその iOS フォールバックは完了。<br>**マスタのローカルキャッシュ（完全オフライン開始）は未着手** — 対象マスタがアプリ側で確定してから |
 | **M6** 🔶 | DataWedge + **マスタのローカルキャッシュ** | マスタのローカルキャッシュは完了（一覧系の全置換・メディアの点検単位の先読み・表示可否 API）。<br>**DataWedge は Zebra 実機の到着待ちで未着手**（連休明け）|
-| **M7** | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0` |
+| **M7** 🔶 | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0`<br>監視イベントの型付け・タブ間同期・障害系テスト・[運用ガイド](./operations.md)は完了。<br>quota / purge は M2 で実装済みで、M7 では逼迫からの回復と保全を固めた |
 | **M8** | 横展開（pf-hinshitsu / pf-zaiko / pf-keisoku）| 4アプリすべてが同一メジャーバージョンで稼働 |
 
 **M1 の結果（2026-08-10）**
@@ -1484,6 +1484,6 @@ M4 に**下書きの永続化を含める**。Zebra 端末は WebView をバッ�
 | 項目 | 暫定値 | 根拠と、外れたときの影響 |
 |---|---|---|
 | Android WebView | **Chrome 90 以上**を想定 | Zebra TC/MC 系（Android 11）の標準構成。<br>必要機能の下限は `imageOrientation:'from-image'` の **Chrome 79**、`OffscreenCanvas` の 69、`Web Locks` の 69、`Background Sync` の 49。<br>いずれも実装時にフォールバック経路を用意するので、**Chrome 79 未満でも機能縮退で動く**（自前EXIF補正 / `HTMLCanvasElement` / IDBリース / ページ内トリガのみ）。<br>M1 の完了条件に「capability 検出のログを実機で採取」を追加する |
-| 保持写真の上限 | **300枚 / 約120MB / 保持7日** | 200〜400KB × 300枚 ≈ 90MB を見込み、余裕を持って 120MB。<br>`navigator.storage.estimate()` の残量が **50MB 未満で警告**、**20MB 未満で enqueue を拒否**（`QuotaExceededError`）。<br>成功ジョブは7日で自動 purge。実機の空き容量が想定より小さければ閾値を下げるだけで済む |
+| 保持写真の上限 | **200枚 / 160MB / 保持7日**（`createFieldCore()` 経由の実効値）<br>※ `DEFAULT_RETENTION` を直に使う経路は 300枚 / 120MB | **どちらも暫定値で、実測後に揃えて確定する。**<br>160MB 側は「1ジョブの上限（10枚 / 8MB）× 20ジョブぶん」という滞留量からの見積り、120MB 側は「200〜400KB × 300枚 ≈ 90MB に余裕を足す」という端末容量からの見積り。根拠が違うので数字も違う。<br>`navigator.storage.estimate()` の残量が **50MB 未満で警告**、**20MB 未満で enqueue を拒否**（`QuotaExceededError`）。<br>成功ジョブは7日で自動 purge。<br>確定は pf-setsubi の Android 実機パイロットの実測待ち。変えるときは `src/core.ts` の `retention` と `src/db/quota.ts` の `DEFAULT_RETENTION` を**必ず一緒に**直すこと |
 | 1ジョブの添付上限 | **10枚 / 合計8MB** | pf-setsubi の想定（5〜10枚）に合わせる。超過は enqueue 時にバリデーションエラー |
 | アップロードのタイムアウト | **1ファイル 60秒 / 署名要求 15秒** | 弱電界での実測（M3）で調整する暫定値 |

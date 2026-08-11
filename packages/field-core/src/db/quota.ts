@@ -61,8 +61,31 @@ export interface QuotaLimits {
 }
 
 /**
- * 暫定値。実機のストレージ事情が分かるまでの見積り。
- * 200〜400KB × 300枚 ≒ 90MB を見込み、余裕を持って 120MB。
+ * すべて**暫定値**。実機の実測が出るまでの見積りで、確定値ではない。
+ *
+ * ## どれが実際に効くか
+ *
+ * ここは `createOfflineQueue()` を直接呼んだときのフォールバック。
+ * アプリが通る `createFieldCore()` は `DEFAULT_QUEUE_LIMITS` から算出した値で
+ * 一部を**上書きする**ので、実際に効く値は次のように混ざる（core.ts 参照）:
+ *
+ * | 項目 | createFieldCore() 経由 | ここの値を直接使う場合 |
+ * |---|---|---|
+ * | `maxUnsentAttachments` | **200枚**（10枚/ジョブ × 20） | 300枚 |
+ * | `maxUnsentBytes` | **160MB**（8MB/ジョブ × 20） | 120MB |
+ * | `maxUnsentJobs` | 200件（上書きなし） | 200件 |
+ * | `succeededMaxAgeMs` | 7日（上書きなし） | 7日 |
+ *
+ * 枚数と容量だけが食い違っているのは、算出の根拠が違うため。
+ * ここは「200〜400KB × 300枚 ≒ 90MB に余裕を足して 120MB」という端末容量からの見積り、
+ * core.ts 側は「1ジョブの上限 × 20ジョブぶん」という滞留量からの見積り。
+ * どちらが正しいかは実機でないと決まらない。
+ *
+ * ## 確定のしかた
+ *
+ * pf-setsubi の Android 実機パイロットで、1枚あたりの実サイズと
+ * 圏外がどれだけ続くかを測ってから、**両方を揃えて**確定する。
+ * 片方だけ触ると再び食い違うので、直すときは core.ts の retention も同時に見ること。
  */
 export const DEFAULT_RETENTION: RetentionLimits = {
   succeededMaxAgeMs: 7 * 24 * 60 * 60 * 1000,

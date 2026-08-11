@@ -1,3 +1,4 @@
+import type { FieldCoreEvent } from "./events.js";
 import type { CompressImageOptions } from "./image/types.js";
 import type { DraftStore } from "./draft/store.js";
 import type { MasterCache } from "./master/cache.js";
@@ -128,11 +129,7 @@ export interface JobTokenIssue {
   expiresAt?: number;
 }
 
-export interface FieldCoreEvent {
-  type: string;
-  at: number;
-  data?: Record<string, unknown>;
-}
+export type { FieldCoreEvent } from "./events.js";
 
 export interface StorageInfo {
   /** navigator.storage.estimate() の結果 */
