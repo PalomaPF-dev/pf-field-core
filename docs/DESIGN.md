@@ -1007,7 +1007,7 @@ const { reachable } = useNetworkStatus();
 | **M4** 🔶 | React バインディング（`react/`, Provider, `useSignedUrl`, `useDraft`）+ **pf-setsubi パイロット** | ライブラリ側は完了（Provider・各フック・下書き）。**pf-setsubi への投入は別リポジトリの作業として残っている**。<br> playground の UI で未送信件数・手動再送・進捗・画像表示が動く。<br>pf-setsubi で: `@vercel/blob` からの置換と `provider: 'vercel-blob'` の並存、<br>`blocked(auth)` からの再ログイン導線、無操作ログアウトの調停（§5-9）、<br>**下書きの永続化**（圏外で入力を続けられること）まで含めて実地投入 |
 | **M5** 🔶 | Service Worker（`sw/`, `cli/`, Background Sync, 署名メディアのキャッシュ正規化）+ **マスタのローカルキャッシュ** | SW 実体・`pf-field-sw build`・Background Sync とその iOS フォールバックは完了。<br>**マスタのローカルキャッシュ（完全オフライン開始）は未着手** — 対象マスタがアプリ側で確定してから |
 | **M6** 🔶 | DataWedge + **マスタのローカルキャッシュ** | マスタのローカルキャッシュは完了（一覧系の全置換・メディアの点検単位の先読み・表示可否 API）。<br>**DataWedge は Zebra 実機の到着待ちで未着手**（連休明け）|
-| **M7** | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0` |
+| **M7** 🔶 | 堅牢化（quota / purge / 監視イベント / 多タブ / 障害系テスト / ドキュメント）| ストレージ逼迫・認証切れ・時計ずれで UI が正しく破綻を伝える。`1.0.0`<br>監視イベントの型付け・タブ間同期・障害系テスト・[運用ガイド](./operations.md)は完了。<br>quota / purge は M2 で実装済みで、M7 では逼迫からの回復と保全を固めた |
 | **M8** | 横展開（pf-hinshitsu / pf-zaiko / pf-keisoku）| 4アプリすべてが同一メジャーバージョンで稼働 |
 
 **M1 の結果（2026-08-10）**

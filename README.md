@@ -9,6 +9,7 @@ Zebra Android ハンディ端末で、工場建屋内の圏外・弱電界エリ
 - 設計: [`docs/DESIGN.md`](docs/DESIGN.md)
 - 認証まわりの調査結果: [`docs/auth-findings.md`](docs/auth-findings.md)
 - アプリへの組み込み手順: [`docs/integration-nextjs.md`](docs/integration-nextjs.md)
+- 運用（監視イベント・多タブ・容量・障害時）: [`docs/operations.md`](docs/operations.md)
 
 ## 現在の状態
 
