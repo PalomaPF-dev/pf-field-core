@@ -108,6 +108,14 @@ BroadcastChannel が無い環境では黙って無効になる（単一タブの
 | 端末の空き | `navigator.storage.estimate()` | 警告 50MB / 停止 20MB | `enqueue` を断る |
 | 滞留量 | 未送信のジョブ数・添付枚数・バイト数 | 200件 / 200枚 / 160MB | `enqueue` を断る |
 
+> **滞留量の既定は暫定値。** 実機の実測が出るまでの見積りで、確定値ではない。
+> 上の 200枚 / 160MB は `createFieldCore()` 経由の値（1ジョブぶんの上限 × 20）。
+> `createOfflineQueue()` を直に呼ぶと `DEFAULT_RETENTION` の 300枚 / 120MB になる
+> （端末容量から積んだ別の見積り）。
+> pf-setsubi の Android 実機パイロットの実測で**両方を揃えて**確定する予定なので、
+> 変えるときは `src/core.ts` の `retention` と `src/db/quota.ts` の
+> `DEFAULT_RETENTION` を必ず一緒に見ること。
+
 マスタキャッシュの枠（既定 60MB）は**これとは別**。
 マスタは取り直せるが未送信は端末にしか無いので、同じ枠で数えてはいけない。
 

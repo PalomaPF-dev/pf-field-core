@@ -1484,6 +1484,6 @@ M4 に**下書きの永続化を含める**。Zebra 端末は WebView をバッ�
 | 項目 | 暫定値 | 根拠と、外れたときの影響 |
 |---|---|---|
 | Android WebView | **Chrome 90 以上**を想定 | Zebra TC/MC 系（Android 11）の標準構成。<br>必要機能の下限は `imageOrientation:'from-image'` の **Chrome 79**、`OffscreenCanvas` の 69、`Web Locks` の 69、`Background Sync` の 49。<br>いずれも実装時にフォールバック経路を用意するので、**Chrome 79 未満でも機能縮退で動く**（自前EXIF補正 / `HTMLCanvasElement` / IDBリース / ページ内トリガのみ）。<br>M1 の完了条件に「capability 検出のログを実機で採取」を追加する |
-| 保持写真の上限 | **300枚 / 約120MB / 保持7日** | 200〜400KB × 300枚 ≈ 90MB を見込み、余裕を持って 120MB。<br>`navigator.storage.estimate()` の残量が **50MB 未満で警告**、**20MB 未満で enqueue を拒否**（`QuotaExceededError`）。<br>成功ジョブは7日で自動 purge。実機の空き容量が想定より小さければ閾値を下げるだけで済む |
+| 保持写真の上限 | **200枚 / 160MB / 保持7日**（`createFieldCore()` 経由の実効値）<br>※ `DEFAULT_RETENTION` を直に使う経路は 300枚 / 120MB | **どちらも暫定値で、実測後に揃えて確定する。**<br>160MB 側は「1ジョブの上限（10枚 / 8MB）× 20ジョブぶん」という滞留量からの見積り、120MB 側は「200〜400KB × 300枚 ≈ 90MB に余裕を足す」という端末容量からの見積り。根拠が違うので数字も違う。<br>`navigator.storage.estimate()` の残量が **50MB 未満で警告**、**20MB 未満で enqueue を拒否**（`QuotaExceededError`）。<br>成功ジョブは7日で自動 purge。<br>確定は pf-setsubi の Android 実機パイロットの実測待ち。変えるときは `src/core.ts` の `retention` と `src/db/quota.ts` の `DEFAULT_RETENTION` を**必ず一緒に**直すこと |
 | 1ジョブの添付上限 | **10枚 / 合計8MB** | pf-setsubi の想定（5〜10枚）に合わせる。超過は enqueue 時にバリデーションエラー |
 | アップロードのタイムアウト | **1ファイル 60秒 / 署名要求 15秒** | 弱電界での実測（M3）で調整する暫定値 |

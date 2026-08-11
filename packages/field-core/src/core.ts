@@ -106,6 +106,18 @@ export async function configureFieldCore(config: FieldCoreConfig): Promise<Field
     pollIntervalMs: limits.pollIntervalMs,
     autoStart: config.queue?.autoStart ?? true,
 
+    /*
+     * 滞留の上限。**暫定値**で、実機の実測が出るまでの見積り。
+     *
+     * ×20 は「1ジョブの上限の20ジョブぶんまでは溜められる」という置き方。
+     * 既定では 200枚 / 160MB になり、DEFAULT_RETENTION の 300枚 / 120MB を上書きする。
+     * 上書きしないもの（maxUnsentJobs = 200件、staleUnsentAfterMs = 3日）は
+     * DEFAULT_RETENTION の値がそのまま効く。
+     *
+     * 確定は pf-setsubi の Android 実機パイロットの実測待ち。
+     * 直すときは db/quota.ts の DEFAULT_RETENTION と**必ず一緒に**見ること
+     * （片方だけ動かすと、経路によって上限が変わる状態に戻る）。
+     */
     retention: {
       succeededMaxAgeMs: limits.purgeSucceededAfterMs,
       maxUnsentAttachments: limits.maxAttachmentsPerJob * 20,
