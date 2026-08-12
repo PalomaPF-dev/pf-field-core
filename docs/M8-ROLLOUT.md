@@ -1,7 +1,8 @@
-# M8 横展開計画 — pf-hinshitsu / pf-keisoku / pf-zaiko
+# M8 横展開計画 — pf-hinshitsu / pf-zaiko
 
 > 作成: 2026-08-12。4アプリ(設備・品質・計測・在庫)の実装調査に基づく。
-> 方針: **現場管理アプリ4本を pf-setsubi と同一仕様に統一する**(利用者からの指示)。
+> 方針: **現場管理アプリを pf-setsubi と同一仕様に統一する**(利用者からの指示)。
+> **pf-keisoku(計測)は対象外**(2026-08-12 利用者判断: PC・オンライン主体のためオフライン機能は不要)。
 > DataWedge(M6 の残り)は Zebra 実機の到着後に別途進める。DataWedge が無くても
 > `capabilities.hardwareScanner` が false になり手入力へフォールバックするため、横展開は先行できる。
 
@@ -13,9 +14,9 @@
 |---|---|---|
 | 1 | ストレージ | **新規(オフライン経路)の添付は Supabase 署名URL 方式**。既存の Vercel Blob 公開URLのデータは**並存**させ移行バッチは書かない(DESIGN §3.1-21 の既定方針どおり) |
 | 2 | 既存のオンライン送信経路 | **触らない。** Server Action 経路はそのまま残し、オフライン経路(enqueue → `/api/...` の冪等受け口)を**並走**で足す。pf-setsubi のパイロットと同じ形 |
-| 3 | 送信の認可 | pf-setsubi の `field_job_tokens` 設計(不透明トークン・SHA-256 保存・TTL 26h・Bearer/cookie 両対応)を共通仕様として3アプリへ複製 |
-| 4 | sign-view | pf-setsubi はストレージ3種混在の歴史的経緯で自前実装だが、**3アプリは新規添付が Supabase 単一なのでライブラリの `createSignViewRoute` を使う**(混在が発生したら pf-setsubi 方式に切替) |
-| 5 | pf-keisoku の対象記録 | ⚠️ DESIGN の想定「計測値+計器写真」は**アプリの実態と乖離**(計測値の記録機能は存在しない。計測機器の台帳・校正・貸出アプリ)。オフライン対象は**校正実績の登録(+状況写真)**とする。**要確認事項として利用者へ報告済み** |
+| 3 | 送信の認可 | pf-setsubi の `field_job_tokens` 設計(不透明トークン・SHA-256 保存・TTL 26h・Bearer/cookie 両対応)を共通仕様として対象アプリへ複製 |
+| 4 | sign-view | pf-setsubi はストレージ3種混在の歴史的経緯で自前実装だが、**対象2アプリは新規添付が Supabase 単一なのでライブラリの `createSignViewRoute` を使う**(混在が発生したら pf-setsubi 方式に切替) |
+| 5 | pf-keisoku | **対象外(確定)。** PC・オンライン主体のためオフライン機能は不要(2026-08-12 利用者判断)。なお DESIGN の想定「計測値+計器写真」はアプリの実態(台帳・校正・貸出)と乖離していた点も記録しておく |
 | 6 | ブランチ | 各アプリ `claude/m8-field-core-rollout`。main へは push しない |
 
 ## 1. 現状マトリクス(2026-08-12 調査)
@@ -46,7 +47,7 @@ pf-setsubi の実装がほぼそのまま移植テンプレートになる。
 | 対象 | 備考 |
 |---|---|
 | `.npmrc` | `@palomapf-dev:registry` + `${NPM_TOKEN}`。無変更 |
-| `package.json` | `@palomapf-dev/pf-field-core: "0.7.0"`(^なし固定)、`@supabase/supabase-js: "^2.45.0"`(**明示追加**。setsubi は optional peer 経由で入っている状態なので3アプリでは明示する)、`"prebuild": "pf-field-sw build"` |
+| `package.json` | `@palomapf-dev/pf-field-core: "0.7.0"`(^なし固定)、`@supabase/supabase-js: "^2.45.0"`(**明示追加**。setsubi は optional peer 経由で入っている状態なので対象アプリでは明示する)、`"prebuild": "pf-field-sw build"` |
 | `.gitignore` | `public/sw.js` / `public/sw.js.map` の2行 |
 | `worker/sw.ts` | `APP_ID` / `JOB_TYPE` / submit URL / `api.exclude` を置換。**`process.env.*` を読まない**(地雷 §5-1) |
 | `src/lib/fieldCoreConfig.ts` | `appId`・`endpoints.submit` のジョブ種別・`limits`・`image` を置換。**トークン先取り機構と `subscribeStorageAlerts` は必ず持っていく** |
@@ -81,7 +82,7 @@ pf-setsubi の実装がほぼそのまま移植テンプレートになる。
 
 manifest・アイコンは4アプリとも配備済みなので、追加は SW(`pf-field-sw build` → `public/sw.js`)と
 `FieldRuntimeNotices`(= SW 登録 + iOS の保存領域分離への案内 + 未送信を抱えたままの追加ブロック)のみ。
-`middleware.ts` の `Cache-Control: private, no-store` は3アプリとも設定済みで setsubi と同じ考え方。
+`middleware.ts` の `Cache-Control: private, no-store` は対象アプリとも設定済みで setsubi と同じ考え方。
 **matcher に `/unsent` `/offline` を足さない**(offline は precache するため)。
 
 ## 3. アプリ別の適用
@@ -95,13 +96,10 @@ manifest・アイコンは4アプリとも配備済みなので、追加は SW(`
   `StoredObjectRef` を受けるため通らない(新 API 側で受ける。既存関数は触らない)
 - 動画は不良部位判別のため画質を落としすぎない(`mediaLimits` の env 分岐を活用)
 
-### 3.2 pf-keisoku(計測) — オフライン対象: 校正実績の登録(+状況写真)
-- 現行: `CalibrationForm.tsx` → Server Action `addCalibrationAction`。写真は Server Action 内で `put()`
-- 追加: `POST /api/calibrations`(冪等)+ オフライン校正フォーム。
-  必須チェック(校正日・機器)は **enqueue 前にクライアントで実施**(DESIGN の「バリデーションを enqueue 前に必ず通す」)
-- `documents` テーブルに校正写真が紐づく構造のため、受け口では `calibration_records` に `client_job_id`/`captured_at` を追加し、`documents` は従属挿入
-- 「結果 pass なら写真を捨てる」仕様は受け口でも踏襲
-- viewport の themeColor(`#7c3aed`)と manifest(`#9162f4`)の不一致を修正
+### 3.2 pf-keisoku(計測) — 対象外
+PC・オンライン主体のため今回の横展開は行わない(§0-5)。将来オフライン対応が必要になった場合の
+参考として、2026-08-12 調査時点の候補は「校正実績の登録(+状況写真)」だった。
+manifest(`#9162f4`)と viewport themeColor(`#7c3aed`)の不一致という小さな既存不備があるが、本計画の範囲外。
 
 ### 3.3 pf-zaiko(在庫) — オフライン対象: 入出庫・調整の記録(写真は任意)
 - 現行: `IoForm.tsx` → Server Action `recordMovementAction` → `applyMovement`(ID サーバー生成)
@@ -115,12 +113,11 @@ manifest・アイコンは4アプリとも配備済みなので、追加は SW(`
 
 | # | 作業 | 対象 |
 |---|---|---|
-| 1 | Supabase の env 登録: `SUPABASE_URL` / `SUPABASE_SECRET_KEY`(**サーバー専用**、`NEXT_PUBLIC_` を付けない) | 3アプリ × Vercel(Production/Preview/Development) |
+| 1 | Supabase の env 登録: `SUPABASE_URL` / `SUPABASE_SECRET_KEY`(**サーバー専用**、`NEXT_PUBLIC_` を付けない) | 2アプリ(品質・在庫) × Vercel(Production/Preview/Development) |
 | 2 | Supabase バケット `field-uploads`(4アプリ共用、パス第1階層 = appId)の存在確認と `allowed_mime_types` / `file_size_limit`(8MB)の設定 | Supabase コンソール |
-| 3 | `NPM_TOKEN`(read:packages)が3アプリの Vercel に登録済みか確認 | Vercel |
+| 3 | `NPM_TOKEN`(read:packages)が2アプリ(品質・在庫)の Vercel に登録済みか確認 | Vercel |
 | 4 | 開発者トークンで各アプリ `npm install` を1回実行し `package-lock.json` を更新(この環境には GitHub Packages トークンが無いため lock は未更新のまま push される) | 各アプリ |
 | 5 | 本番反映後の実機検証(pf-setsubi の `docs/IPHONE-CHECK.md` を各アプリ名に読み替えて実施) | iPhone 実機 |
-| 6 | pf-keisoku の対象記録の確認(§0-5。校正実績で良いか、別に「計測値の記録」機能を新規に作る構想があるか) | 判断 |
 
 ## 5. 既知の地雷(pf-setsubi の実装コメントから)
 
