@@ -93,13 +93,28 @@ export function createFieldServiceWorker(
     event.waitUntil(
       (async () => {
         const cache = await self.caches.open(shellCache);
-        const urls = [
-          ...(options.precache ?? []).map((entry: PrecacheEntry) => entry.url),
-          ...(appShell.precacheRoutes ?? []),
-        ];
+        const urls = (options.precache ?? []).map((entry: PrecacheEntry) => entry.url);
         // 1つ落ちても install ごと失敗させない。
         // 失敗すると SW が入らず、オフライン機能が丸ごと無効になる
         await Promise.allSettled(urls.map((url) => cache.add(url)));
+
+        // 事前キャッシュするルートは HTML だけでは足りない。
+        // Next.js の CSS / JS は /_next/static 配下にあり、HTML を precache しても
+        // 参照先が無ければ圏外フォールバックは**素の HTML**で表示される
+        // （実機で判明した欠陥）。HTML を読んで参照資産も一緒に取り込む。
+        const assetUrls = new Set<string>();
+        await Promise.allSettled(
+          (appShell.precacheRoutes ?? []).map(async (route) => {
+            const response = await self.fetch(route);
+            if (!(response.status >= 200 && response.status < 300)) return;
+            await cache.put(route, response.clone());
+            const html = await response.text();
+            for (const m of html.matchAll(/(?:href|src)="(\/_next\/static\/[^"]+)"/g)) {
+              if (m[1]) assetUrls.add(m[1]);
+            }
+          }),
+        );
+        await Promise.allSettled([...assetUrls].map((url) => cache.add(url)));
 
         if (options.skipWaiting) await self.skipWaiting();
       })(),
@@ -192,6 +207,14 @@ export function createFieldServiceWorker(
 
     // 署名の発行・認証・アップロードは絶対にキャッシュしない
     if (matches(url, api.exclude)) return;
+
+    // ビルド資産（/_next/static）: ファイル名にハッシュが入り不変なので Cache First。
+    // install で precache した圏外フォールバック用の CSS / JS もここから返る。
+    // オンラインで一度使った資産も貯まるので、閲覧済みページは圏外でも崩れない
+    if (url.pathname.startsWith("/_next/static/")) {
+      event.respondWith(cacheFirst(request, shellCache, url.href));
+      return;
+    }
 
     if (matches(url, api.include)) {
       event.respondWith(
