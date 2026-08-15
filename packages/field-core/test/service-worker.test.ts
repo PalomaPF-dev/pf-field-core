@@ -34,7 +34,7 @@ class FakeCache {
 function setupSw() {
   const listeners = new Map<string, Listener[]>();
   const caches = new Map<string, FakeCache>();
-  const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+  const fetchMock = vi.fn(async (_input?: unknown) => new Response("ok", { status: 200 }));
 
   const global = {
     addEventListener(type: string, listener: Listener) {
