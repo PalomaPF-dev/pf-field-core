@@ -25,7 +25,10 @@ class FakeCache {
   async put(key: RequestInfo | URL, value: Response): Promise<void> {
     this.store.set(typeof key === "string" ? key : (key as Request).url ?? String(key), value);
   }
-  async add(): Promise<void> {}
+  added: string[] = [];
+  async add(url: RequestInfo | URL): Promise<void> {
+    this.added.push(String(url));
+  }
 }
 
 function setupSw() {
@@ -199,6 +202,49 @@ describe("Service Worker", () => {
     expect(harness.caches.has("pf-field-test-shell-v0")).toBe(false);
     // 別アプリのものには触らない（バケットもキャッシュも4アプリ共用のため）
     expect(harness.caches.has("pf-field-other-shell-v0")).toBe(true);
+  });
+
+  it("★ install で precacheRoutes の HTML が参照する /_next/static も取り込む", async () => {
+    // 実機で判明した欠陥の再発防止: /offline の HTML だけ precache しても
+    // CSS / JS が無ければ圏外フォールバックは素の HTML で表示される
+    harness.fetchMock.mockImplementation(async (input: unknown) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes("/offline")) {
+        return new Response(
+          '<html><head><link rel="stylesheet" href="/_next/static/css/abc123.css"/>' +
+            '<script src="/_next/static/chunks/main-xyz.js" defer></script></head>' +
+            "<body>offline</body></html>",
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      return new Response("ok", { status: 200 });
+    });
+
+    createFieldServiceWorker({ appId: "test", version: "v1" }, harness.scope);
+    await harness.fire("install", {});
+
+    const cache = harness.caches.get("pf-field-test-shell-v1")!;
+    expect(await cache.match("/offline")).toBeTruthy();
+    expect(cache.added).toContain("/_next/static/css/abc123.css");
+    expect(cache.added).toContain("/_next/static/chunks/main-xyz.js");
+  });
+
+  it("/_next/static はキャッシュ優先で返す（圏外でも崩れない）", async () => {
+    createFieldServiceWorker({ appId: "test", version: "v1" }, harness.scope);
+
+    const assetUrl = "https://app.example.com/_next/static/css/abc123.css";
+    const cache = new FakeCache();
+    cache.store.set(assetUrl, new Response("body{color:red}", { status: 200 }));
+    harness.caches.set("pf-field-test-shell-v1", cache);
+
+    const event = { request: new Request(assetUrl, { method: "GET" }) };
+    await harness.fire("fetch", event);
+
+    const responded = await (event as { responded?: Promise<Response> | Response }).responded;
+    expect(responded).toBeTruthy();
+    expect(await (responded as Response).text()).toBe("body{color:red}");
+    // キャッシュにあったのでネットワークへは行かない
+    expect(harness.fetchMock).not.toHaveBeenCalled();
   });
 });
 
