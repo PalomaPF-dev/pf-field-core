@@ -1,5 +1,15 @@
 # @palomapf-dev/pf-field-core
 
+## 0.7.1
+
+### Patch Changes
+
+- 6196855: 圏外フォールバック(`/offline`)がスタイル無しの素の HTML で表示される欠陥を修正。
+
+  Service Worker の install で precacheRoutes の HTML が参照する `/_next/static` の
+  CSS / JS も一緒に取り込み、fetch では `/_next/static` を Cache First で返すようにした。
+  オンラインで一度使った資産も貯まるため、閲覧済みページは圏外でも崩れない。
+
 ## 0.7.0
 
 ### Minor Changes
